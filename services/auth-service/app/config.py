@@ -6,7 +6,7 @@ API_PREFIX = "/api/auth"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://auth_user:auth_password@localhost:5433/auth_db"
+    database_url: str = "postgresql+psycopg://auth_user:auth_password@postgres:5432/auth_db"
 
     jwt_secret: str = "dev-only-secret-change-me-in-production-0123456789"
     jwt_algorithm: str = "HS256"

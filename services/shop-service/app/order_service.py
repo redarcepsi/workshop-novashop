@@ -2,8 +2,10 @@
 
 Les produits concernés sont verrouillés (SELECT ... FOR UPDATE, toujours triés par id pour éviter
 les interblocages) : deux clients ne peuvent pas acheter le dernier exemplaire en même temps.
+Le paiement et le remboursement sont délégués à la plateforme de paiement (voir payment.py).
 """
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -18,6 +20,8 @@ from .cart_service import CENT, shipping_cost_for
 from .models import CartItem, Order, OrderItem, OrderStatus, Product
 from .schemas import CheckoutRequest
 from .security import CurrentUser
+
+logger = logging.getLogger("shop-service")
 
 
 def _lock_products(db: Session, product_ids) -> dict[int, Product]:
@@ -74,16 +78,17 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
 
     shipping = shipping_cost_for(subtotal)
     total = subtotal + shipping
+    number = _order_number()
 
     try:
-        payment_reference = payment.charge(payload.payment.card_number, total)
+        paid = payment.charge(payload.payment, total, number)
     except HTTPException:
         db.rollback()
         raise
 
     shipping_info = payload.shipping
     order = Order(
-        number=_order_number(),
+        number=number,
         user_id=user.id,
         customer_email=user.email,
         status=OrderStatus.PAID,
@@ -95,8 +100,8 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         shipping_postal_code=shipping_info.postal_code,
         shipping_city=shipping_info.city,
         shipping_country=shipping_info.country,
-        card_last4=payload.payment.card_number[-4:],
-        payment_reference=payment_reference,
+        card_last4=paid.card_last4,
+        payment_reference=paid.reference,
         items=order_items,
     )
     db.add(order)
@@ -105,7 +110,17 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         products[line.product_id].stock -= line.quantity
         db.delete(line)
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # Le client est débité mais la commande n'a pas pu être enregistrée : on le rembourse (compensation)
+        db.rollback()
+        logger.exception("Commande %s non enregistrée après le paiement %s : remboursement", number, paid.reference)
+        try:
+            payment.refund(paid.reference)
+        except HTTPException:
+            logger.error("Remboursement de compensation impossible pour %s : à régulariser", paid.reference)
+        raise
     return order
 
 
@@ -123,6 +138,13 @@ def cancel(db: Session, user_id: uuid.UUID, order_id: uuid.UUID) -> Order:
     order = get_user_order(db, user_id, order_id, lock=True)
     if order.status != OrderStatus.PAID:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette commande est déjà annulée")
+
+    # Remboursement d'abord : s'il échoue, la commande reste payée et l'annulation peut être retentée
+    try:
+        payment.refund(order.payment_reference)
+    except HTTPException:
+        db.rollback()
+        raise
 
     # Remise en stock (les produits supprimés du catalogue entre-temps sont ignorés)
     product_ids = [item.product_id for item in order.items if item.product_id is not None]

@@ -1,8 +1,14 @@
-# NovaShop — boutique en ligne fictive en microservices
+# Plateforme de paiement fictive et sa boutique marchande NovaShop
 
-Site e-commerce de démonstration spécialisé en **body pillows de personnages de jeu vidéo** :
-page d'accueil, catalogue filtrable, fiches produit (recto / verso), panier, paiement par carte (simulé)
-et suivi des commandes. **Aucun paiement réel.**
+Démonstrateur du workshop **PROJECT RESILIENCE-ALPHA** : une **plateforme de paiement** fictive
+(`payment-service`) qui encaisse les paiements par carte pour le compte de marchands, et un marchand
+de démonstration, la boutique en ligne **NovaShop**, qui génère des transactions réelles de bout en bout.
+**Aucun paiement réel, aucune donnée bancaire réelle.**
+
+- **payment-service** est le système critique : transactions, remboursements, journal des opérations.
+  C'est lui qui est attaqué, surveillé et rétabli. La preuve de reprise est une nouvelle transaction acceptée.
+- **NovaShop** est un marchand partenaire : site e-commerce spécialisé en **body pillows de personnages de
+  jeu vidéo** (accueil, catalogue filtrable, fiches produit recto / verso, panier, paiement, suivi des commandes).
 
 Les personnages sont **originaux** (dragonne, paladin, nécromancienne, cyber-ninja, slime, héros 8-bit…),
 adultes et entièrement habillés. Leurs illustrations sont générées en SVG par shop-service à partir
@@ -23,36 +29,75 @@ Sur la page de connexion, un clic sur un compte de démo suffit pour se connecte
 
 ```mermaid
 flowchart LR
-    U[Navigateur] -->|:8080| F
+    U[Navigateur] -->|":8080 (HTTP_BIND)"| F
 
-    subgraph net_front [réseau frontend]
-        F[frontend<br/>nginx + React/Tailwind<br/>passerelle /api/*]
-        A[auth-service<br/>FastAPI · bcrypt · JWT]
-        S[shop-service<br/>FastAPI · catalogue, panier,<br/>commandes, paiement simulé,<br/>visuels SVG]
-    end
-
-    subgraph net_back [réseau backend]
-        DB[(postgres 16<br/>auth_db · shop_db)]
-    end
+    F[frontend<br/>nginx + React/Tailwind<br/>passerelle /api/*]
+    A[auth-service<br/>FastAPI · bcrypt · JWT]
+    S[shop-service · NovaShop<br/>FastAPI · catalogue, panier,<br/>commandes, visuels SVG]
+    P[payment-service<br/>FastAPI · transactions,<br/>remboursements, journal]
+    DB[(postgres 16<br/>auth_db · shop_db · payment_db)]
 
     F -->|/api/auth/*| A
     F -->|/api/shop/*| S
+    S -->|"X-API-Key + Idempotency-Key"| P
     A --> DB
     S --> DB
+    P --> DB
 ```
 
-| Service        | Rôle                                                         | Port hôte | Base       |
-|----------------|--------------------------------------------------------------|-----------|------------|
-| `frontend`     | Sert la SPA React et fait **passerelle API** (reverse proxy) | 8080      | –          |
-| `auth-service` | Inscription, connexion, émission des JWT                     | 8001      | `auth_db`  |
-| `shop-service` | Catalogue, panier, commandes, paiement fictif                | 8002      | `shop_db`  |
-| `postgres`     | Une instance, **une base + un rôle par service**             | 5433      | –          |
-| `adminer` (opt.)| Interface web Postgres (`--profile tools`)                  | 8081      | –          |
+| Service           | Rôle                                                              | Publié sur l'hôte          | Base         |
+|-------------------|-------------------------------------------------------------------|----------------------------|--------------|
+| `frontend`        | Sert la SPA React et fait **passerelle API** (reverse proxy)      | `HTTP_BIND:8080`           | –            |
+| `auth-service`    | Comptes clients NovaShop : inscription, connexion, JWT            | non                        | `auth_db`    |
+| `shop-service`    | NovaShop (marchand) : catalogue, panier, commandes                | non                        | `shop_db`    |
+| `payment-service` | Plateforme de paiement : transactions, remboursements, journal    | non                        | `payment_db` |
+| `postgres`        | Une instance, **une base + un rôle par service**                  | non                        | –            |
+| `adminer` (opt.)  | Interface web Postgres (`--profile tools`)                        | `127.0.0.1:8081` seulement | –            |
+| `payment-console` (opt.) | Swagger de payment-service via un proxy (`--profile tools`) | `127.0.0.1:8082` seulement | –     |
 
-Choix de conception :
+### Réseaux et exposition
 
-- **Database-per-service** : `auth_user` ne peut pas lire `shop_db` et inversement. Pas de clé étrangère
-  entre services : `cart_items.user_id` / `orders.user_id` référencent l'id de l'utilisateur d'auth-service.
+Seule la passerelle nginx est publiée. Chaque service n'est branché que sur les réseaux dont il a besoin :
+
+| Réseau       | Membres                                   | Type                 |
+|--------------|-------------------------------------------|----------------------|
+| `edge`       | frontend                                  | porte le port publié |
+| `frontend`   | frontend, auth-service, shop-service      | `internal`           |
+| `payment`    | shop-service, payment-service (+ payment-console) | `internal`   |
+| `backend`    | auth-service, shop-service, postgres      | `internal`           |
+| `payment-db` | payment-service, postgres                 | `internal`           |
+| `tools`      | adminer, payment-console                  | profil `tools`       |
+
+Conséquences, vérifiées sur la stack :
+
+- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seul le port 8080 répond : la base et les API
+  ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
+- `payment-service` n'est joignable que par `shop-service` (ni nginx ni auth-service ne le voient) et, si on
+  la lance, par sa console d'exploration sur 127.0.0.1 ;
+- un réseau `internal` n'a pas de route vers l'extérieur : les API et la base **ne peuvent rien envoyer
+  hors de Docker** (utile face à une tentative d'exfiltration). Seul nginx peut sortir ;
+- le jour J, `HTTP_BIND=192.168.137.1` dans `.env` publie le site **uniquement sur le point d'accès** du consortium,
+  pas sur le Wi-Fi du campus. Le point d'accès doit alors être actif avant `docker compose up`, et le site
+  s'ouvre sur http://192.168.137.1:8080 (plus sur `localhost`).
+
+### Choix de conception
+
+- **Database-per-service** : chaque rôle (`auth_user`, `shop_user`, `payment_user`) n'a accès qu'à sa base.
+  Pas de clé étrangère entre services : `cart_items.user_id` / `orders.user_id` référencent l'id de
+  l'utilisateur d'auth-service, `transactions.merchant_reference` le numéro de commande NovaShop.
+- **Données de carte minimales** : NovaShop transmet la carte à `payment-service` sans la stocker et ne garde
+  que les 4 derniers chiffres et la référence `PAY_…`. La plateforme non plus ne stocke ni numéro complet ni CVC.
+- **Authentification marchand par clé API** (`X-API-Key`) : la plateforme n'en stocke que le hash SHA-256, et un
+  marchand ne voit que ses propres transactions. Elle ne connaît pas le secret JWT des clients NovaShop.
+- **Paiements idempotents** : NovaShop envoie son numéro de commande en `Idempotency-Key`. Une requête rejouée
+  (nouvelle tentative après un délai dépassé, double envoi) renvoie la transaction d'origine sans redébiter ;
+  la même clé avec un autre montant est refusée (409). Les remboursements sont idempotents aussi.
+- **Cycle de vie journalisé** : `PENDING → AUTHORIZED → CAPTURED → REFUNDED` (ou `DECLINED`). Chaque changement
+  d'état est inscrit dans `transaction_events` (en ajout seul) et dans les logs, au format `clé=valeur`. Toute
+  autre transition lève une erreur.
+- **Mode dégradé** : si `payment-service` ne répond pas (délai de 3 s, 2 tentatives), NovaShop répond **503**
+  sans rien débiter ni modifier ; le catalogue et le panier restent utilisables. Si la commande ne peut pas être
+  enregistrée après un débit, NovaShop rembourse aussitôt (compensation).
 - **Auth stateless** : auth-service signe un JWT HS256 (`sub`, `email`, `name`, `exp`, `iss`) ;
   shop-service le vérifie **localement** avec le secret partagé, donc sans appel réseau par requête.
 - **Le serveur fait foi** : prix, stocks, frais de port et totaux sont toujours recalculés par shop-service,
@@ -76,14 +121,33 @@ cp .env.example .env          # optionnel : toutes les variables ont une valeur 
 docker compose up -d --build
 ```
 
+> **Volume Postgres créé avant l'arrivée de payment-service** : le script d'init ne tourne qu'à la création du
+> volume. Il est idempotent, on peut donc le rejouer pour créer `payment_db` sans rien effacer :
+> `docker compose up -d postgres && docker compose exec postgres bash /docker-entrypoint-initdb.d/01-init-databases.sh`,
+> puis `docker compose up -d --build`.
+
 | URL                                    | Contenu                    |
 |----------------------------------------|----------------------------|
-| http://localhost:8080                  | Boutique                   |
+| http://localhost:8080                  | Boutique NovaShop          |
 | http://localhost:8080/api/shop/docs    | Swagger shop-service       |
 | http://localhost:8080/api/auth/docs    | Swagger auth-service       |
 | `/api/shop/redoc`, `/api/auth/redoc`   | Documentation ReDoc        |
 
-Les docs sont aussi accessibles directement sur les ports 8001 et 8002 (ex. http://localhost:8002/api/shop/docs).
+### Explorer la plateforme de paiement
+
+`payment-service` n'est pas publié. Pour le voir, lancer sa **console d'exploration** (profil `tools`, sur
+127.0.0.1 uniquement, donc invisible depuis le réseau) :
+
+```bash
+docker compose --profile tools up -d payment-console   # http://127.0.0.1:8082 → Swagger de payment-service
+```
+
+Dans Swagger : **Authorize** → coller la clé API du marchand NovaShop (`MERCHANT_API_KEY`, par défaut
+`sk_test_novashop_dev_only_change_me`), puis `GET /transactions` liste les paiements passés sur la boutique,
+avec leur journal. Pour les tables elles-mêmes : Adminer (`docker compose --profile tools up -d adminer`,
+serveur `postgres`, utilisateur `payment_user`, base `payment_db`).
+
+Arrêter la console : `docker compose --profile tools stop payment-console`.
 
 **Cartes de test** (date future et CVC quelconques) :
 
@@ -107,13 +171,14 @@ Livraison : 4,90 €, offerte dès 50 € (configurable via `SHIPPING_COST` et `
 ```bash
 docker compose ps                      # état et santé des conteneurs
 docker compose logs -f shop-service    # logs d'un service
-docker compose --profile tools up -d   # + Adminer sur :8081 (serveur : postgres)
+docker compose --profile tools up -d   # + Adminer (http://127.0.0.1:8081) et console paiement (http://127.0.0.1:8082)
 docker compose down                    # arrêter
 docker compose down -v                 # arrêter ET supprimer les données (le catalogue sera recréé)
 ```
 
-> Le script `db/init/01-init-databases.sh` ne s'exécute qu'à la **création** du volume. Si vous changez
-> les mots de passe des bases, faites `docker compose down -v`.
+> Le script `db/init/01-init-databases.sh` ne s'exécute automatiquement qu'à la **création** du volume. Il crée
+> ce qui manque mais ne modifie pas un rôle existant : si vous changez les mots de passe des bases, faites
+> `docker compose down -v`.
 
 > Pas de migrations pour l'instant (`create_all`) : après une modification des modèles de shop-service,
 > réinitialisez ses tables (le catalogue est recréé au démarrage, les comptes ne sont pas touchés) :
@@ -123,8 +188,8 @@ docker compose down -v                 # arrêter ET supprimer les données (le 
 ## Développement du front sans rebuild
 
 ```bash
-docker compose up -d postgres auth-service shop-service
-cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite → 8001/8002)
+docker compose up -d
+cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite /api → passerelle :8080)
 ```
 
 ## Pages du site
@@ -135,7 +200,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 | `/products`      | Catalogue : recherche, catégories, filtres, tri, pagination       |
 | `/products/:slug`| Fiche produit : galerie recto / verso, caractéristiques, stock, ajout au panier |
 | `/cart`          | Panier : quantités, suppression, seuil de livraison offerte       |
-| `/checkout`      | Adresse + paiement par carte (connexion requise)                  |
+| `/checkout`      | Adresse + paiement par carte via la plateforme (connexion requise) |
 | `/orders`        | Historique des commandes                                          |
 | `/orders/:id`    | Détail, confirmation après achat, annulation                      |
 | `/login`, `/register` | Authentification (le panier invité est conservé)             |
@@ -165,12 +230,22 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 | DELETE  | `/cart/items/{product_id}`   | JWT  | Retirer un article                                     |
 | DELETE  | `/cart`                      | JWT  | Vider le panier                                        |
 | POST    | `/cart/merge`                | JWT  | Fusionner le panier invité après connexion             |
-| POST    | `/orders`                    | JWT  | Payer le panier → commande (402 carte refusée, 409 stock) |
+| POST    | `/orders`                    | JWT  | Payer le panier → commande (402 carte refusée, 409 stock, 503 paiement indisponible) |
 | GET     | `/orders`                    | JWT  | Mes commandes                                          |
 | GET     | `/orders/{id}`               | JWT  | Détail d'une commande                                  |
-| POST    | `/orders/{id}/cancel`        | JWT  | Annuler (remboursement fictif + remise en stock)       |
+| POST    | `/orders/{id}/cancel`        | JWT  | Annuler (remboursement via la plateforme + remise en stock) |
 | GET     | `/media/{slug}.svg`          | –    | Visuel du produit : `?view=pair` (défaut), `front`, `back` |
 | GET     | `/health`                    | –    | Sonde de santé                                         |
+
+**payment-service** (`/api/payment`, réseau interne uniquement)
+
+| Méthode | Route                              | Auth    | Description                                                    |
+|---------|------------------------------------|---------|----------------------------------------------------------------|
+| POST    | `/transactions`                    | clé API | Payer : 201 capturée, 402 refusée, 200 si rejouée (`Idempotency-Key`), 409 clé déjà utilisée |
+| GET     | `/transactions`                    | clé API | Mes transactions : `status`, `merchant_reference`, `limit`, `offset` |
+| GET     | `/transactions/{reference}`        | clé API | Détail et journal d'une transaction                            |
+| POST    | `/transactions/{reference}/refund` | clé API | Rembourser (idempotent ; 409 si non capturée)                  |
+| GET     | `/health`                          | –       | Sonde de santé                                                 |
 
 ## Arborescence
 
@@ -178,19 +253,27 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 .
 ├── docker-compose.yml
 ├── .env.example
-├── db/init/01-init-databases.sh       # crée auth_db / shop_db + rôles dédiés
+├── db/init/01-init-databases.sh       # crée auth_db / shop_db / payment_db + rôles dédiés (idempotent)
 ├── services/
 │   ├── auth-service/                   # FastAPI : config, database, models, schemas, security, routes
 │   │   └── app/seed.py                 # comptes de démonstration
-│   └── shop-service/
+│   ├── shop-service/
+│   │   └── app/
+│   │       ├── models.py               # Category, Product, CartItem, Order, OrderItem
+│   │       ├── seed.py                 # catalogue de démonstration + fiches d'apparence
+│   │       ├── art.py                  # générateur d'illustrations SVG (housses recto / verso)
+│   │       ├── cart_service.py         # règles du panier (stock, plafonds, frais de port)
+│   │       ├── order_service.py        # paiement du panier, annulation (verrous, compensation)
+│   │       ├── payment.py              # client de payment-service (clé API, idempotence, 503)
+│   │       └── routers/                # catalog.py, cart.py, orders.py, media.py
+│   └── payment-service/
 │       └── app/
-│           ├── models.py               # Category, Product, CartItem, Order, OrderItem
-│           ├── seed.py                 # catalogue de démonstration + fiches d'apparence
-│           ├── art.py                  # générateur d'illustrations SVG (housses recto / verso)
-│           ├── cart_service.py         # règles du panier (stock, plafonds, frais de port)
-│           ├── order_service.py        # paiement du panier, annulation (verrous)
-│           ├── payment.py              # prestataire de paiement simulé
-│           └── routers/                # catalog.py, cart.py, orders.py, media.py
+│           ├── models.py               # Merchant, Transaction (+ transitions), TransactionEvent
+│           ├── processor.py            # réseau carte / banque émettrice simulés, cartes de test
+│           ├── transaction_service.py  # création idempotente, capture, remboursement
+│           ├── security.py             # authentification marchand par clé API
+│           ├── seed.py                 # marchand de démo NovaShop
+│           └── routes.py
 └── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx
     ├── nginx.conf                      # SPA + reverse proxy /api/*
     └── src/{pages,components,context,utils}
@@ -198,7 +281,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 
 ## Pistes d'évolution
 
-- Extraire le paiement dans un **payment-service** dédié (appel HTTP ou événement depuis shop-service)
+- Rapprochement automatique NovaShop ↔ plateforme (commandes payées sans transaction capturée et inversement),
+  à brancher sur la vérification post-reprise
+- Tokenisation de la carte côté navigateur : le numéro ne transiterait plus par NovaShop
 - Migrations **Alembic** à la place de `create_all`
 - Back-office admin (gestion des produits et des stocks, rôle dans le JWT)
 - Codes promo, liste de souhaits, avis clients

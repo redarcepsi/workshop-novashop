@@ -13,6 +13,7 @@ const COUNTRIES = ['France', 'Belgique', 'Suisse', 'Luxembourg', 'Canada']
 const TEST_CARDS = [
   { number: '4242 4242 4242 4242', label: 'Acceptée' },
   { number: '4000 0000 0000 0002', label: 'Refusée' },
+  { number: '4000 0000 0000 9995', label: 'Fonds insuffisants' },
 ]
 
 function Steps() {

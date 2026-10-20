@@ -23,7 +23,8 @@ app = FastAPI(
     version="1.0.0",
     description=(
         "API métier de la boutique en ligne fictive **NovaShop**, spécialisée en body pillows de personnages "
-        "de jeu vidéo originaux : catalogue, panier, commandes, paiement par carte simulé et visuels SVG.\n\n"
+        "de jeu vidéo originaux : catalogue, panier, commandes et visuels SVG. Le paiement par carte est confié "
+        "à la plateforme de paiement (`payment-service`), dont NovaShop est un marchand.\n\n"
         "- **Catalogue** : public, sans authentification\n"
         "- **Panier** et **Commandes** : exigent un **JWT** délivré par `auth-service` "
         "(`POST /api/auth/login`). Cliquer sur **Authorize** et coller le `access_token`.\n\n"
