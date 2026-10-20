@@ -1,0 +1,102 @@
+name: novashop
+
+# ---------------------------------------------------------------------------
+# NovaShop — boutique en ligne fictive en microservices
+#
+#   frontend (nginx)  ── sert la SPA React + reverse proxy /api/*  (réseau "frontend")
+#   auth-service      ── inscription / connexion / JWT              (frontend + backend)
+#   shop-service      ── catalogue, panier, commandes, paiement fictif (frontend + backend)
+#   postgres          ── une instance, une base par service         (réseau "backend" uniquement)
+# ---------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Utilisés par db/init/01-init-databases.sh pour créer une base + un rôle par service
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:-auth_password}
+      SHOP_DB_PASSWORD: ${SHOP_DB_PASSWORD:-shop_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      # -h 127.0.0.1 : le serveur temporaire lancé pendant l'init n'écoute pas en TCP,
+      # le healthcheck ne passe donc au vert qu'une fois les bases créées.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d shop_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+  auth-service:
+    build: ./services/auth-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://auth_user:${AUTH_DB_PASSWORD:-auth_password}@postgres:5432/auth_db
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-0123456789}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    networks:
+      - backend
+      - frontend
+
+  shop-service:
+    build: ./services/shop-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://shop_user:${SHOP_DB_PASSWORD:-shop_password}@postgres:5432/shop_db
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-0123456789}
+      FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-50.00}
+      SHIPPING_COST: ${SHIPPING_COST:-4.90}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    networks:
+      - backend
+      - frontend
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      shop-service:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    networks:
+      - frontend
+
+  # Interface web d'admin Postgres (optionnelle) : docker compose --profile tools up
+  adminer:
+    image: adminer:4
+    profiles: ["tools"]
+    depends_on:
+      - postgres
+    ports:
+      - "8081:8080"
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  pgdata:

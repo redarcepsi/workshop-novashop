@@ -1,0 +1,69 @@
+import uuid
+
+from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from .. import order_service
+from ..config import API_PREFIX
+from ..database import get_db
+from ..models import Order
+from ..schemas import CheckoutRequest, OrderOut
+from ..security import CurrentUser, get_current_user
+
+router = APIRouter(prefix=f"{API_PREFIX}/orders", tags=["Commandes"])
+
+_UNAUTHORIZED = {401: {"description": "Jeton absent, invalide ou expiré"}}
+_NOT_FOUND = {404: {"description": "Commande introuvable"}}
+
+
+@router.post(
+    "",
+    response_model=OrderOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Passer commande (payer le panier)",
+    responses={
+        **_UNAUTHORIZED,
+        400: {"description": "Panier vide"},
+        402: {"description": "Paiement refusé (cartes de test 4000 0000 0000 0002 / 9995)"},
+        409: {"description": "Stock insuffisant"},
+    },
+)
+def checkout(payload: CheckoutRequest, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Transforme le panier en commande, en une seule transaction :
+
+    1. vérifie le stock de chaque article (lignes verrouillées) ;
+    2. calcule les totaux côté serveur (livraison offerte au-delà du seuil) ;
+    3. simule le paiement par carte ;
+    4. décrémente le stock, crée la commande et vide le panier.
+
+    Cartes de test : `4242 4242 4242 4242` acceptée, `4000 0000 0000 0002` refusée.
+    """
+    return order_service.checkout(db, user, payload)
+
+
+@router.get("", response_model=list[OrderOut], summary="Mes commandes", responses=_UNAUTHORIZED)
+def list_orders(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.scalars(select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(100)).all()
+
+
+@router.get(
+    "/{order_id}",
+    response_model=OrderOut,
+    summary="Détail d'une commande",
+    responses={**_UNAUTHORIZED, **_NOT_FOUND},
+)
+def get_order(order_id: uuid.UUID, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return order_service.get_user_order(db, user.id, order_id)
+
+
+@router.post(
+    "/{order_id}/cancel",
+    response_model=OrderOut,
+    summary="Annuler une commande",
+    responses={**_UNAUTHORIZED, **_NOT_FOUND, 409: {"description": "Commande déjà annulée"}},
+)
+def cancel_order(order_id: uuid.UUID, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Annule la commande, rembourse (fictivement) et remet les articles en stock."""
+    return order_service.cancel(db, user.id, order_id)
