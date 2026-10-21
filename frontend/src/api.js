@@ -20,14 +20,94 @@ export const setUnauthorizedHandler = (fn) => {
   onUnauthorized = fn
 }
 
+// Messages par défaut de FastAPI/Starlette, toujours en anglais
+const DEFAULT_DETAILS = {
+  'Not Found': 'Ressource introuvable',
+  'Not authenticated': 'Vous devez être connecté',
+  'Method Not Allowed': 'Action non autorisée',
+  'Internal Server Error': 'Erreur interne du serveur',
+  'There was an error parsing the body': 'Requête invalide',
+}
+
+const STATUS_MESSAGES = {
+  404: 'Ressource introuvable',
+  405: 'Action non autorisée',
+  413: 'La requête est trop volumineuse',
+  429: 'Trop de requêtes, veuillez réessayer dans quelques instants',
+}
+
+const FIELD_LABELS = {
+  email: 'Email',
+  username: 'Email',
+  password: 'Mot de passe',
+  full_name: 'Nom complet',
+  address: 'Adresse',
+  postal_code: 'Code postal',
+  city: 'Ville',
+  country: 'Pays',
+  card_number: 'Numéro de carte',
+  expiry: 'Expiration',
+  cvc: 'CVC',
+  quantity: 'Quantité',
+  product_id: 'Produit',
+  items: 'Panier',
+}
+
+// Champs dont le format est contrôlé par une expression régulière : le motif brut n'a pas de sens pour le client
+const PATTERN_MESSAGES = {
+  postal_code: 'Code postal invalide',
+  expiry: "Date d'expiration invalide (format MM/AA)",
+  cvc: 'Le CVC doit comporter 3 ou 4 chiffres',
+}
+
+// Traduit une erreur de validation Pydantic v2 ({ loc, msg, type, ctx }) en français
+function validationMessage({ loc = [], msg = '', type, ctx = {} }) {
+  const field = [...loc].reverse().find((part) => typeof part === 'string')
+  const label = FIELD_LABELS[field] || 'Champ'
+  switch (type) {
+    case 'missing':
+      return `${label} : champ obligatoire`
+    case 'string_too_short':
+      return `${label} : ${ctx.min_length} caractère(s) minimum`
+    case 'string_too_long':
+      return `${label} : ${ctx.max_length} caractères maximum`
+    case 'string_pattern_mismatch':
+      return PATTERN_MESSAGES[field] || `${label} : format invalide`
+    case 'too_long':
+      return `${label} : ${ctx.max_length} éléments maximum`
+    case 'greater_than_equal':
+      return `${label} : la valeur doit être supérieure ou égale à ${ctx.ge}`
+    case 'greater_than':
+      return `${label} : la valeur doit être supérieure à ${ctx.gt}`
+    case 'less_than_equal':
+      return `${label} : la valeur doit être inférieure ou égale à ${ctx.le}`
+    case 'less_than':
+      return `${label} : la valeur doit être inférieure à ${ctx.lt}`
+    case 'int_parsing':
+    case 'int_type':
+    case 'float_parsing':
+    case 'decimal_parsing':
+      return `${label} : nombre attendu`
+    case 'json_invalid':
+      return 'Requête invalide'
+    case 'value_error':
+      // Nos validateurs lèvent déjà des messages en français, préfixés par Pydantic
+      if (msg.startsWith('Value error, ')) return msg.slice('Value error, '.length)
+      if (msg.startsWith('value is not a valid email address')) return 'Adresse email invalide'
+      return `${label} : valeur invalide`
+    default:
+      return `${label} : valeur invalide`
+  }
+}
+
 function errorMessage(data, status) {
-  if (typeof data?.detail === 'string') return data.detail
-  // Erreurs de validation FastAPI : [{ loc, msg, type }, ...]
+  if (typeof data?.detail === 'string') return DEFAULT_DETAILS[data.detail] || data.detail
+  // Erreurs de validation FastAPI : [{ loc, msg, type, ctx }, ...]
   if (Array.isArray(data?.detail)) {
-    return data.detail.map((d) => d.msg.replace(/^Value error, /, '')).join(' · ')
+    return [...new Set(data.detail.map(validationMessage))].join(' · ')
   }
   if (status >= 500) return 'Le service est momentanément indisponible'
-  return `Erreur ${status}`
+  return STATUS_MESSAGES[status] || `Erreur ${status}`
 }
 
 async function request(path, { method = 'GET', body, form, auth = true } = {}) {
