@@ -36,10 +36,11 @@ def checkout(payload: CheckoutRequest, user: CurrentUser = Depends(get_current_u
     Transforme le panier en commande, en une seule transaction :
 
     1. vérifie le stock de chaque article (lignes verrouillées) ;
-    2. calcule les totaux côté serveur (livraison offerte au-delà du seuil) ;
+    2. calcule le total côté serveur ;
     3. fait débiter la carte par la plateforme de paiement (`payment-service`), le numéro de commande servant
        de clé d'idempotence ;
-    4. décrémente le stock, crée la commande et vide le panier.
+    4. décrémente le stock, crée la commande, vide le panier et livre aussitôt : cartes dans la collection,
+       PokéDollars sur le porte-monnaie.
 
     Cartes de test : `4242 4242 4242 4242` acceptée, `4000 0000 0000 0002` refusée.
     """
@@ -68,11 +69,15 @@ def get_order(order_id: uuid.UUID, user: CurrentUser = Depends(get_current_user)
     responses={
         **_UNAUTHORIZED,
         **_NOT_FOUND,
-        409: {"description": "Commande déjà annulée"},
+        409: {"description": "Commande déjà annulée, PokéDollars déjà dépensés ou cartes absentes de la collection"},
         502: {"description": "Remboursement refusé par la plateforme de paiement"},
         503: {"description": "Plateforme de paiement indisponible : la commande reste payée"},
     },
 )
 def cancel_order(order_id: uuid.UUID, user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Fait rembourser la commande par la plateforme de paiement, puis l'annule et remet les articles en stock."""
+    """
+    Fait rembourser la commande par la plateforme de paiement, puis l'annule : les cartes achetées quittent la
+    collection (et reviennent en stock), les PokéDollars achetés sont repris. Refusée (409) si ces PokéDollars
+    ont déjà été dépensés.
+    """
     return order_service.cancel(db, user.id, order_id)

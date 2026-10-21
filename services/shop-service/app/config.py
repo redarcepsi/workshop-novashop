@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 API_PREFIX = "/api/shop"
@@ -15,18 +13,16 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "novashop-auth"
 
-    # Plateforme de paiement (payment-service) : NovaShop y est un marchand, identifié par sa clé API
+    # Plateforme de paiement (payment-service) : PokéBling y est un marchand, identifié par sa clé API
     payment_service_url: str = "http://payment-service:8000"
     payment_api_key: str = "sk_test_novashop_dev_only_change_me"
     payment_timeout: float = 3.0  # secondes, par tentative : les produits restent verrouillés pendant l'appel
     payment_attempts: int = 2     # sans risque de double débit grâce à la clé d'idempotence
 
     # Règles métier
-    free_shipping_threshold: Decimal = Decimal("50.00")
-    shipping_cost: Decimal = Decimal("4.90")
     max_quantity_per_item: int = 10
 
-    # Insère le catalogue de démonstration si la table des produits est vide
+    # Insère le catalogue (cartes, lots de PokéDollars, boosters) si la table des cartes est vide
     seed_catalog: bool = True
 
     cors_origins: str = "http://localhost:8080,http://localhost:5173"

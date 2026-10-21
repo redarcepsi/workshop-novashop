@@ -23,7 +23,7 @@ VM. À mettre à jour quand le WAF, le SIEM ou le moteur de remédiation arriven
 |---------|---------|
 | [routes-frontend-et-passerelle-nginx.md](routes-frontend-et-passerelle-nginx.md) | Routage nginx, pages de la SPA et appels d'API par page |
 | [routes-auth-service.md](routes-auth-service.md) | Inscription, connexion, profil |
-| [routes-shop-service.md](routes-shop-service.md) | Catalogue, panier, commandes, médias |
+| [routes-shop-service.md](routes-shop-service.md) | Cartes, PokéDollars, boosters, panier, commandes, porte-monnaie, collection |
 | [routes-payment-service.md](routes-payment-service.md) | Transactions, remboursements, cartes de test |
 | [routes-rag-service.md](routes-rag-service.md) | API de l'assistant, compatible OpenAI |
 
@@ -34,7 +34,8 @@ VM. À mettre à jour quand le WAF, le SIEM ou le moteur de remédiation arriven
 | [processus-authentification-jwt.md](processus-authentification-jwt.md) | Connexion, contenu et vérification du JWT, expiration |
 | [processus-panier.md](processus-panier.md) | Panier invité, fusion à la connexion, règles de calcul |
 | [processus-commande-et-paiement.md](processus-commande-et-paiement.md) | Paiement de bout en bout, délais, mode dégradé, compensation, preuve de reprise |
-| [processus-annulation-et-remboursement.md](processus-annulation-et-remboursement.md) | Annulation, remboursement idempotent |
+| [processus-annulation-et-remboursement.md](processus-annulation-et-remboursement.md) | Annulation, reprise des PokéDollars et des cartes, remboursement idempotent |
+| [processus-boosters-et-pokedollars.md](processus-boosters-et-pokedollars.md) | Monnaie virtuelle, ouverture et tirage des boosters, collection |
 | [cycle-de-vie-transaction-paiement.md](cycle-de-vie-transaction-paiement.md) | États, transitions, journal des événements, idempotence |
 | [processus-assistant-rag.md](processus-assistant-rag.md) | Indexation, recherche hybride, génération, garde-fous |
 

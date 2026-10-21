@@ -1,283 +1,268 @@
-"""Catalogue de démonstration, inséré au premier démarrage si la table des produits est vide.
+"""Catalogue de PokéBling, inséré au premier démarrage si la table des cartes est vide.
 
-Thème : body pillows (housses de coussin long) de personnages de jeu vidéo originaux,
-tous adultes et entièrement habillés. Les visuels sont générés par app/art.py.
+- Les cartes viennent de data/cards.json, généré depuis l'API TCGdex par tools/fetch_pokemon_cards.py : noms et
+  caractéristiques seulement, les images restent chez TCGdex et sont chargées par le navigateur.
+- Chaque carte est vendue à l'unité, en euros : prix et stock dépendent de sa rareté (cher, comparé à un booster).
+- Les lots de PokéDollars se paient aussi en euros ; les boosters, eux, se paient en PokéDollars.
 """
 
+import json
 import logging
+import math
+import random
+import re
+import unicodedata
+from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .config import API_PREFIX
-from .models import Category, Product
+from .models import Booster, Card, CardSet, Product, ProductKind, Rarity
 
 logger = logging.getLogger("shop-service")
 
-CATEGORIES = [
-    {"slug": "creatures", "name": "Créatures & monstres", "emoji": "🐉"},
-    {"slug": "fantasy", "name": "Héroïque fantasy", "emoji": "⚔️"},
-    {"slug": "scifi", "name": "Sci-fi & cyberpunk", "emoji": "🚀"},
-    {"slug": "retro", "name": "Rétro & pixel", "emoji": "👾"},
-    {"slug": "accessoires", "name": "Accessoires de couette", "emoji": "🛏️"},
+DATA_FILE = Path(__file__).parent / "data" / "cards.json"
+
+# Libellés de rareté de TCGdex → paliers de la boutique. « Rare » dépend de l'époque, voir _rarity()
+RARITIES = {
+    "Commune": Rarity.COMMON,
+    "Peu Commune": Rarity.UNCOMMON,
+    "Rare": Rarity.RARE,
+    "Double rare": Rarity.HOLO,
+    "Illustration rare": Rarity.ULTRA,
+    "Ultra Rare": Rarity.ULTRA,
+    "HIGH-TECH rare": Rarity.ULTRA,
+    "Illustration spéciale rare": Rarity.SECRET,
+    "Hyper rare": Rarity.SECRET,
+}
+
+# ---------------------------------------------------------------- prix des cartes à l'unité (euros)
+
+PRICES = {
+    Rarity.COMMON: Decimal("1.49"),
+    Rarity.UNCOMMON: Decimal("2.99"),
+    Rarity.RARE: Decimal("6.99"),
+    Rarity.HOLO: Decimal("17.99"),
+    Rarity.ULTRA: Decimal("34.99"),
+    Rarity.SECRET: Decimal("79.99"),
+}
+STOCKS = {
+    Rarity.COMMON: (30, 60),
+    Rarity.UNCOMMON: (15, 30),
+    Rarity.RARE: (5, 12),
+    Rarity.HOLO: (2, 6),
+    Rarity.ULTRA: (1, 3),
+    Rarity.SECRET: (1, 1),
+}
+# Pokémon les plus recherchés (numéros du Pokédex) : leurs cartes rares coûtent plus cher
+STAR_POKEMON = {3, 6, 9, 25, 94, 130, 133, 134, 135, 136, 143, 144, 145, 146, 149, 150, 151, 196, 197, 470, 471, 700}
+STAR_MULTIPLIER = Decimal("1.6")
+# Les cartes « graal » : prix et stock fixés à la main
+SPECIAL = {
+    "base1-4": ("249.99", 1),     # Dracaufeu, Set de Base
+    "base1-2": ("89.99", 2),      # Tortank, Set de Base
+    "base1-15": ("79.99", 2),     # Florizarre, Set de Base
+    "base1-10": ("59.99", 3),     # Mewtwo, Set de Base
+    "sv03.5-199": ("199.99", 1),  # Dracaufeu-ex, illustration spéciale
+    "sv03.5-205": ("99.99", 1),   # Mew-ex doré
+    "sv08.5-161": ("349.99", 1),  # Noctali-ex, illustration spéciale
+    "sv08.5-167": ("149.99", 1),  # Évoli-ex, illustration spéciale
+    "sv08.5-179": ("179.99", 1),  # Pikachu-ex doré
+}
+FEATURED = [
+    "base1-4", "sv08.5-161", "sv03.5-199", "sv08.5-179", "sv08.5-167", "sv03.5-205", "base1-2", "base1-15",
+    "base1-10", "sv03.5-173", "base3-4", "base2-11", "sv08.5-156", "base3-5",
 ]
 
-PILLOW = [
-    "Housse de body pillow 160 × 50 cm",
-    "Impression recto / verso haute définition",
-    "Tissu peau de pêche 2 sens, ultra-doux",
-    "Fermeture zip invisible",
-    "Lavable en machine à 30 °C",
-    "Garnissage vendu séparément",
-]
-PILLOW_XXL = ["Housse de body pillow 180 × 60 cm (format XXL)", *PILLOW[1:]]
+# ---------------------------------------------------------------- PokéDollars (euros → monnaie virtuelle)
 
-PRODUCTS = [
-    # ------------------------------------------------------------ créatures
-    {
-        "category": "creatures", "slug": "dragonnette-xxl", "name": "Dragonnette XXL", "emoji": "🐉",
-        "price": "129.00", "compare": "149.00", "stock": 3, "rating": 4.9, "reviews": 512, "featured": True,
-        "description": "Notre best-seller légendaire : 180 cm de dragonnette en armure d'écailles, cornes et ailes "
-                       "comprises. Crache du feu uniquement dans vos rêves.",
-        "details": PILLOW_XXL,
-        "art": {"bg": ["#fed7aa", "#ef4444"], "pattern": "flames", "skin": "#fde3cf", "hair": "#b91c1c",
-                "hair_style": "long", "eyes": "#d97706", "headwear": "horns", "horn": "#fef3c7",
-                "wings": "#7f1d1d", "tail": "#991b1b", "weapon": "sword", "weapon_color": "#fbbf24",
-                "outfit": {"style": "armor", "top": "#dc2626", "under": "#7f1d1d", "bottom": "#450a0a",
-                           "boots": "#1c1917", "accent": "#fbbf24"}},
-    },
-    {
-        "category": "creatures", "slug": "comte-vampire-couette", "name": "Comte Vampire de la Couette", "emoji": "🦇",
-        "price": "69.90", "compare": None, "stock": 14, "rating": 4.6, "reviews": 188, "featured": False,
-        "description": "Il ne sort que la nuit, ça tombe bien : vous aussi. Cape doublée de velours (imprimée), "
-                       "regard ténébreux et canines de velours garantis.",
-        "details": PILLOW,
-        "art": {"bg": ["#7c3aed", "#312e81"], "pattern": "moon", "skin": "#f1f5f9", "hair": "#0f172a",
-                "hair_style": "short", "eyes": "#dc2626", "fangs": True, "cape": "#991b1b",
-                "outfit": {"style": "tunic", "top": "#1e1b4b", "bottom": "#0f172a", "boots": "#020617", "accent": "#dc2626"}},
-    },
-    {
-        "category": "creatures", "slug": "loup-garou-pleine-lune", "name": "Loup-Garou Poilu Pleine Lune", "emoji": "🐺",
-        "price": "64.90", "compare": "74.90", "stock": 20, "rating": 4.5, "reviews": 143, "featured": False,
-        "description": "Câlin, poilu, un peu grognon les soirs de pleine lune. Chemise de bûcheron réglementaire, "
-                       "griffes limées pour votre confort.",
-        "details": PILLOW,
-        "art": {"bg": ["#3b82f6", "#0f172a"], "pattern": "moon", "skin": "#a8a29e", "hair": "#57534e",
-                "hair_style": "spiky", "eyes": "#facc15", "headwear": "wolf", "muzzle": True,
-                "outfit": {"style": "tunic", "top": "#b91c1c", "bottom": "#1e3a8a", "boots": "#44403c", "accent": "#1f2937"}},
-    },
-    {
-        "category": "creatures", "slug": "slime-royal", "name": "Slime Royal Tout Mou", "emoji": "🟢",
-        "price": "44.90", "compare": None, "stock": 40, "rating": 4.8, "reviews": 276, "featured": True,
-        "description": "100 % gélatine émotionnelle, 0 % gélatine réelle. S'écrase sur commande et reprend sa forme "
-                       "au réveil. Couronne non contractuelle.",
-        "details": PILLOW,
-        "art": {"type": "slime", "slime": "#4ade80", "bg": ["#ecfccb", "#22c55e"], "pattern": "bubbles"},
-    },
-    {
-        "category": "creatures", "slug": "orc-doudou-bestial", "name": "Orc Doudou Bestial", "emoji": "👹",
-        "price": "59.90", "compare": None, "stock": 9, "rating": 4.4, "reviews": 97, "featured": False,
-        "description": "Deux mètres de muscles sous une armure de cuir, défenses arrondies pour votre sécurité. "
-                       "Grogne doucement, protège fort.",
-        "details": PILLOW,
-        "art": {"bg": ["#fef3c7", "#d97706"], "pattern": "runes", "skin": "#65a30d", "hair": "#1c1917",
-                "hair_style": "mohawk", "eyes": "#dc2626", "tusks": True, "fur_collar": "#e7e5e4", "weapon": "axe",
-                "outfit": {"style": "armor", "top": "#92400e", "under": "#57534e", "bottom": "#44403c",
-                           "boots": "#292524", "accent": "#a16207"}},
-    },
-    # ------------------------------------------------------------ fantasy
-    {
-        "category": "fantasy", "slug": "paladin-de-chevet", "name": "Paladin de Chevet", "emoji": "🛡️",
-        "price": "79.90", "compare": None, "stock": 25, "rating": 4.7, "reviews": 233, "featured": True,
-        "description": "Il veille sur votre sommeil en armure complète. Bouclier anti-cauchemars inclus (imprimé). "
-                       "Serment de fidélité garanti 2 ans.",
-        "details": PILLOW,
-        "art": {"bg": ["#dbeafe", "#3b82f6"], "pattern": "stars", "skin": "#f2c9a0", "headwear": "helmet",
-                "plume": "#dc2626", "cape": "#1d4ed8", "shield": "#1d4ed8", "weapon": "sword", "weapon_color": "#fbbf24",
-                "outfit": {"style": "armor", "top": "#cbd5e1", "under": "#475569", "bottom": "#334155",
-                           "boots": "#64748b", "accent": "#fbbf24"}},
-    },
-    {
-        "category": "fantasy", "slug": "elfe-de-compagnie", "name": "Elfe de Compagnie 160 cm", "emoji": "🏹",
-        "price": "74.90", "compare": None, "stock": 18, "rating": 4.6, "reviews": 164, "featured": False,
-        "description": "Oreilles pointues, arc tendu, jamais en retard pour un câlin. Tenue de rôdeuse en cuir "
-                       "et cape forestière.",
-        "details": PILLOW,
-        "art": {"bg": ["#dcfce7", "#16a34a"], "pattern": "stars", "skin": "#fde7d6", "hair": "#facc15",
-                "hair_style": "long", "eyes": "#15803d", "ears": "elf", "cape": "#14532d", "weapon": "bow",
-                "outfit": {"style": "tunic", "top": "#15803d", "bottom": "#3f2a1d", "boots": "#57381f", "accent": "#a3e635"}},
-    },
-    {
-        "category": "fantasy", "slug": "necromancienne-nocturne", "name": "Nécromancienne Nocturne — Édition Insomnie",
-        "emoji": "💀", "price": "84.90", "compare": "99.90", "stock": 7, "rating": 4.8, "reviews": 201, "featured": True,
-        "description": "Réveille les morts, mais jamais vos voisins. Longue robe brodée de runes et faux de "
-                       "cérémonie (en tissu, rassurez-vous).",
-        "details": PILLOW,
-        "art": {"bg": ["#ede9fe", "#6d28d9"], "pattern": "runes", "skin": "#ede4f3", "hair": "#f1f5f9",
-                "hair_style": "long", "eyes": "#a855f7", "headwear": "hood", "hood": "#2e1065",
-                "weapon": "scythe", "weapon_color": "#a855f7",
-                "outfit": {"style": "robe", "top": "#3b0764", "boots": "#1e1b4b", "accent": "#c084fc"}},
-    },
-    {
-        "category": "fantasy", "slug": "barbare-calin-sauvage", "name": "Barbare Câlin Sauvage", "emoji": "🪓",
-        "price": "69.90", "compare": None, "stock": 22, "rating": 4.3, "reviews": 118, "featured": False,
-        "description": "Tunique de cuir bien fermée, cape en fourrure synthétique et hache à double tranchant… "
-                       "de câlins.",
-        "details": PILLOW,
-        "art": {"bg": ["#ffedd5", "#ea580c"], "pattern": "flames", "skin": "#d6a77a", "hair": "#5b3416",
-                "hair_style": "long", "eyes": "#1e3a8a", "headwear": "bandana", "bandana": "#b91c1c",
-                "cape": "#7c2d12", "fur_collar": "#f5f5f4", "weapon": "axe",
-                "outfit": {"style": "tunic", "top": "#92400e", "bottom": "#57381f", "boots": "#3f2a1d", "accent": "#e7e5e4"}},
-    },
-    {
-        "category": "fantasy", "slug": "mage-noire-tentation", "name": "Mage Noire Tentation", "emoji": "🔮",
-        "price": "72.90", "compare": None, "stock": 16, "rating": 4.5, "reviews": 156, "featured": True,
-        "description": "Elle maîtrise 47 sorts, dont « Grasse matinée » et « Encore cinq minutes ». "
-                       "Chapeau pointu et bâton de mage inclus.",
-        "details": PILLOW,
-        "art": {"bg": ["#fce7f3", "#db2777"], "pattern": "stars", "skin": "#fbe3d6", "hair": "#a855f7",
-                "hair_style": "long", "eyes": "#db2777", "headwear": "witchhat", "hat": "#1e1b4b",
-                "weapon": "staff", "weapon_color": "#f472b6",
-                "outfit": {"style": "robe", "top": "#1e1b4b", "boots": "#0f172a", "accent": "#f472b6"}},
-    },
-    {
-        "category": "fantasy", "slug": "pretresse-calin-sacre", "name": "Prêtresse du Câlin Sacré", "emoji": "✨",
-        "price": "64.90", "compare": None, "stock": 30, "rating": 4.7, "reviews": 98, "featured": False,
-        "description": "Bénit votre lit d'un +10 en Récupération. Robe immaculée et auréole lumineuse "
-                       "(ne s'allume pas, désolé).",
-        "details": PILLOW,
-        "art": {"bg": ["#fefce8", "#eab308"], "pattern": "stars", "skin": "#f8dcc8", "hair": "#b45309",
-                "hair_style": "long", "eyes": "#0284c7", "headwear": "halo", "weapon": "staff", "weapon_color": "#fde047",
-                "outfit": {"style": "robe", "top": "#f8fafc", "boots": "#cbd5e1", "accent": "#eab308"}},
-    },
-    # ------------------------------------------------------------ sci-fi
-    {
-        "category": "scifi", "slug": "space-marine-gros-calibre", "name": "Space Marine Gros Calibre", "emoji": "🪐",
-        "price": "89.90", "compare": None, "stock": 12, "rating": 4.6, "reviews": 187, "featured": True,
-        "description": "Armure énergétique intégrale imprimée en haute définition et 2,5 kg de rembourrage tactique. "
-                       "Le seul blaster autorisé dans votre lit.",
-        "details": PILLOW,
-        "art": {"bg": ["#cffafe", "#0e7490"], "pattern": "hex", "skin": "#e8c4a0", "headwear": "spacehelmet",
-                "visor": "#22d3ee", "weapon": "blaster", "weapon_color": "#22d3ee",
-                "outfit": {"style": "armor", "top": "#475569", "under": "#1e293b", "bottom": "#334155",
-                           "boots": "#1e293b", "accent": "#22d3ee"}},
-    },
-    {
-        "category": "scifi", "slug": "cyber-ninja-nuit-blanche", "name": "Cyber-Ninja Nuit Blanche", "emoji": "🥷",
-        "price": "79.90", "compare": "94.90", "stock": 15, "rating": 4.7, "reviews": 241, "featured": True,
-        "description": "Furtif, silencieux, rétroéclairé. Disparaît sous la couette en 0,3 seconde. "
-                       "Visière néon garantie sans lumière bleue.",
-        "details": PILLOW,
-        "art": {"bg": ["#4c1d95", "#be185d"], "pattern": "hex", "skin": "#f3d3c0", "hair": "#0f172a",
-                "hair_style": "spiky", "headwear": "visor", "visor": "#f0abfc", "weapon": "katana", "weapon_color": "#f0abfc",
-                "outfit": {"style": "suit", "top": "#18181b", "boots": "#09090b", "accent": "#f0abfc"}},
-    },
-    {
-        "category": "scifi", "slug": "pilote-mecha-haute-pression", "name": "Pilote de Mecha Haute Pression", "emoji": "🤖",
-        "price": "74.90", "compare": None, "stock": 10, "rating": 4.4, "reviews": 76, "featured": False,
-        "description": "Combinaison de pilote intégrale, prête au décollage vers le pays des rêves. "
-                       "Synchronisation neuronale avec votre oreiller : 400 %.",
-        "details": PILLOW,
-        "art": {"bg": ["#fee2e2", "#dc2626"], "pattern": "hex", "skin": "#fde2d0", "hair": "#ea580c",
-                "hair_style": "bob", "eyes": "#2563eb",
-                "outfit": {"style": "suit", "top": "#f8fafc", "boots": "#dc2626", "accent": "#dc2626"}},
-    },
-    {
-        "category": "scifi", "slug": "androide-veille-prolongee", "name": "Androïde Mode Veille Prolongée", "emoji": "🔋",
-        "price": "69.90", "compare": None, "stock": 0, "rating": 4.5, "reviews": 132, "featured": False,
-        "description": "Batterie infinie, câlins illimités, mises à jour nocturnes. Actuellement en rupture : "
-                       "trop de demandes de redémarrage.",
-        "details": PILLOW,
-        "art": {"bg": ["#e0f2fe", "#0284c7"], "pattern": "hex", "skin": "#dbeafe", "hair": "#e2e8f0",
-                "hair_style": "bob", "eyes": "#0ea5e9",
-                "outfit": {"style": "suit", "top": "#475569", "boots": "#1e293b", "accent": "#38bdf8"}},
-    },
-    # ------------------------------------------------------------ rétro
-    {
-        "category": "retro", "slug": "heros-8bit-vie-bonus", "name": "Héros 8-bit Vie Bonus", "emoji": "🕹️",
-        "price": "49.90", "compare": None, "stock": 35, "rating": 4.6, "reviews": 302, "featured": True,
-        "description": "Pixel art en 16 couleurs, câlins en haute résolution. Collectionnez-le avant le GAME OVER.",
-        "details": PILLOW,
-        "art": {"type": "pixel", "sprite": "hero", "bg": ["#bae6fd", "#0369a1"], "pattern": "pixels"},
-    },
-    {
-        "category": "retro", "slug": "reine-pixel-niveau-secret", "name": "Reine Pixel Niveau Secret", "emoji": "👑",
-        "price": "49.90", "compare": "59.90", "stock": 21, "rating": 4.7, "reviews": 167, "featured": False,
-        "description": "Votre reine n'est pas dans un autre château : elle est dans cette housse. "
-                       "Débloque le niveau secret « Grasse mat' ».",
-        "details": PILLOW,
-        "art": {"type": "pixel", "sprite": "queen", "bg": ["#fce7f3", "#be185d"], "pattern": "pixels"},
-    },
-    # ------------------------------------------------------------ accessoires (visuel emoji)
-    {
-        "category": "accessoires", "slug": "garnissage-moelleux-xxl", "name": "Garnissage Moelleux 160 × 50 cm",
-        "emoji": "☁️", "color": "#94a3b8", "price": "34.90", "compare": None, "stock": 60, "rating": 4.8,
-        "reviews": 410, "featured": False,
-        "description": "Le rembourrage qui donne du corps à votre housse. Ne s'affaisse jamais, "
-                       "contrairement à vous le lundi matin.",
-        "details": ["Dimensions : 160 × 50 cm", "Fibre creuse siliconée, 1,8 kg",
-                    "Compatible avec toutes nos housses standard", "Lavable à 30 °C"],
-    },
-    {
-        "category": "accessoires", "slug": "spray-odeur-de-taverne", "name": "Spray d'ambiance « Odeur de Taverne »",
-        "emoji": "🍺", "color": "#d97706", "price": "12.90", "compare": None, "stock": 80, "rating": 4.2,
-        "reviews": 88, "featured": False,
-        "description": "Notes de bois ciré, de pain chaud et d'aventure. Pour des câlins en immersion totale.",
-        "details": ["Flacon de 100 ml", "Notes : bois ciré, pain chaud, feu de cheminée", "Ne tache pas les housses"],
-    },
-    {
-        "category": "accessoires", "slug": "sac-discretion-absolue", "name": "Sac de Transport Discrétion Absolue",
-        "emoji": "🛍️", "color": "#475569", "price": "19.90", "compare": None, "stock": 45, "rating": 4.9,
-        "reviews": 154, "featured": False,
-        "description": "Opaque, sobre, sans aucun logo. Personne ne saura jamais qui vous accompagne en week-end.",
-        "details": ["70 × 30 × 30 cm, contient un body pillow roulé", "Toile opaque, sans logo", "Bandoulière réglable"],
-    },
-    {
-        "category": "accessoires", "slug": "taie-unie-peau-de-peche", "name": "Taie Unie Peau de Pêche",
-        "emoji": "🛏️", "color": "#a78bfa", "price": "24.90", "compare": None, "stock": 50, "rating": 4.4,
-        "reviews": 61, "featured": False,
-        "description": "Pour les nuits où votre héros a besoin d'une pause. Douce comme un bonus d'XP.",
-        "details": ["Housse unie 160 × 50 cm", "Tissu peau de pêche 2 sens", "Coloris : gris perle", "Lavable à 30 °C"],
-    },
+POKEDOLLAR_PACKS = [
+    {"slug": "pokedollars-500", "name": "Bourse de 500 PokéDollars", "pokedollars": 500, "price": "4.99",
+     "description": "De quoi ouvrir un premier booster et commencer votre collection."},
+    {"slug": "pokedollars-1200", "name": "Sacoche de 1 200 PokéDollars", "pokedollars": 1200, "price": "9.99",
+     "description": "Le format préféré des dresseurs : 20 % de PokéDollars offerts.", "featured": True},
+    {"slug": "pokedollars-2600", "name": "Coffre de 2 600 PokéDollars", "pokedollars": 2600, "price": "19.99",
+     "description": "Pour enchaîner les ouvertures : 30 % de PokéDollars offerts."},
+    {"slug": "pokedollars-7000", "name": "Trésor de 7 000 PokéDollars", "pokedollars": 7000, "price": "49.99",
+     "description": "Le trésor des maîtres collectionneurs : 40 % de PokéDollars offerts."},
 ]
+
+# ---------------------------------------------------------------- boosters (prix en PokéDollars)
+
+# Une entrée par carte, dans l'ordre de révélation : {palier: poids}
+CLASSIC_SLOTS = [{"COMMON": 1}] * 3 + [{"UNCOMMON": 1}] * 2 + [{"RARE": 2, "HOLO": 1}]
+MODERN_SLOTS = (
+    [{"COMMON": 1}] * 3
+    + [{"UNCOMMON": 1}]
+    + [{"COMMON": 50, "UNCOMMON": 30, "ULTRA": 15, "SECRET": 5}]  # carte variante
+    + [{"RARE": 72, "HOLO": 22, "ULTRA": 5, "SECRET": 1}]
+)
+LEGENDARY_SLOTS = [{"HOLO": 1}] * 2 + [{"HOLO": 70, "ULTRA": 30}] * 2 + [{"ULTRA": 75, "SECRET": 25}]
+
+BOOSTERS = [
+    {"slug": "set-de-base", "name": "Booster Set de Base", "price": 300, "sets": ["base1"], "slots": CLASSIC_SLOTS,
+     "cover": "base1-4", "colors": ["#facc15", "#dc2626"],
+     "description": "Le tout premier set, sorti en 1999. 6 cartes dont une rare garantie, holographique une fois sur trois."},
+    {"slug": "jungle", "name": "Booster Jungle", "price": 250, "sets": ["base2"], "slots": CLASSIC_SLOTS,
+     "cover": "base2-11", "colors": ["#4ade80", "#166534"],
+     "description": "Les Pokémon de la jungle et les évolutions d'Évoli. 6 cartes dont une rare garantie."},
+    {"slug": "fossile", "name": "Booster Fossile", "price": 250, "sets": ["base3"], "slots": CLASSIC_SLOTS,
+     "cover": "base3-4", "colors": ["#fbbf24", "#78350f"],
+     "description": "Pokémon fossiles, spectres et oiseaux légendaires. 6 cartes dont une rare garantie."},
+    {"slug": "151", "name": "Booster 151", "price": 400, "sets": ["sv03.5"], "slots": MODERN_SLOTS,
+     "cover": "sv03.5-151", "colors": ["#f472b6", "#7c3aed"],
+     "description": "Les 151 premiers Pokémon, version Écarlate et Violet. 6 cartes dont une rare garantie, "
+                    "et une carte variante qui peut cacher une illustration rare."},
+    {"slug": "evolutions-prismatiques", "name": "Booster Évolutions Prismatiques", "price": 450, "sets": ["sv08.5"],
+     "slots": MODERN_SLOTS, "cover": "sv08.5-075", "colors": ["#67e8f9", "#c026d3"],
+     "description": "Évoli et ses évolutions sous leur plus beau jour. 6 cartes dont une rare garantie."},
+    {"slug": "legendaire", "name": "Booster Légendaire", "price": 1500,
+     "sets": ["base1", "base2", "base3", "sv03.5", "sv08.5"], "slots": LEGENDARY_SLOTS,
+     "cover": "sv08.5-161", "colors": ["#fde047", "#1c1917"],
+     "description": "Le booster des grands collectionneurs : 5 cartes de tous les sets, toutes holographiques ou "
+                    "mieux, dont une ultra rare garantie."},
+]
+
+
+def slugify(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def _rarity(card: dict, classic: bool) -> tuple[Rarity, str]:
+    if card["rarity"] == "Rare" and classic and card["holo"]:
+        return Rarity.HOLO, "Rare Holo"
+    return RARITIES[card["rarity"]], card["rarity"]
+
+
+def _round_price(value: Decimal) -> Decimal:
+    """Arrondit au prix « psychologique » supérieur : 27,98 → 27,99."""
+    return Decimal(math.ceil(value)) - Decimal("0.01")
+
+
+def _offer(card: dict, rarity: Rarity) -> tuple[Decimal, Decimal | None, int]:
+    """Prix, prix barré éventuel et stock d'une carte. Déterministe : le même catalogue à chaque installation."""
+    if card["id"] in SPECIAL:
+        price, stock = SPECIAL[card["id"]]
+        return Decimal(price), None, stock
+
+    rng = random.Random(card["id"])
+    price = PRICES[rarity]
+    if rarity.rank >= Rarity.RARE.rank and card["dex"] in STAR_POKEMON:
+        price = _round_price(price * STAR_MULTIPLIER)
+    stock = rng.randint(*STOCKS[rarity])
+    compare_at = None
+    if rarity.rank >= Rarity.RARE.rank:
+        if rng.random() < 0.04:
+            stock = 0  # quelques ruptures, pour l'exemple
+        elif rng.random() < 0.10:
+            compare_at, price = price, _round_price(price * Decimal("0.8"))
+    return price, compare_at, stock
+
+
+def _card_description(card: dict, set_name: str, official_count: int, rarity_label: str) -> str:
+    return (
+        f"{card['name']}, carte n° {int(card['local_id'])}/{official_count} du set {set_name} ({rarity_label}). "
+        "Carte numérique : elle rejoint votre collection dès le paiement."
+    )
 
 
 def seed_catalog(db: Session) -> None:
-    if db.scalar(select(func.count()).select_from(Product)):
+    if db.scalar(select(func.count()).select_from(Card)):
         return
 
-    categories = {}
-    for position, data in enumerate(CATEGORIES):
-        category = Category(position=position, **data)
-        db.add(category)
-        categories[data["slug"]] = category
+    data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    sets, official_counts = {}, {}
+    for position, s in enumerate(data["sets"]):
+        sets[s["id"]] = CardSet(
+            id=s["id"],
+            name=s["name"],
+            serie=s["serie"],
+            release_date=date.fromisoformat(s["release_date"]) if s.get("release_date") else None,
+            logo_url=s.get("logo"),
+            position=position,
+        )
+        official_counts[s["id"]] = s["official_count"]
+    db.add_all(sets.values())
 
-    for p in PRODUCTS:
-        art = p.get("art")
+    cards = {}
+    for c in data["cards"]:
+        # Les énergies de base n'ont aucun intérêt à collectionner
+        if c["category"] == "Énergie" and c["rarity"] == "Commune":
+            continue
+        set_id = c["id"].rsplit("-", 1)[0]
+        card_set = sets[set_id]
+        rarity, rarity_label = _rarity(c, classic=card_set.serie == "Base")
+        slug = slugify(f"{c['id']} {c['name']}")
+        card = Card(
+            id=c["id"],
+            slug=slug,
+            set=card_set,
+            number=int(c["local_id"]),
+            name=c["name"],
+            category=c["category"],
+            rarity=rarity,
+            rarity_label=rarity_label,
+            types=c["types"],
+            hp=c["hp"],
+            illustrator=c["illustrator"],
+            description=c["description"],
+            image_url=c["image"],
+        )
+        cards[c["id"]] = card
+        price, compare_at, stock = _offer(c, rarity)
         db.add(
             Product(
-                category=categories[p["category"]],
-                slug=p["slug"],
-                name=p["name"],
-                description=p["description"],
-                details=p["details"],
-                emoji=p["emoji"],
-                color=p.get("color") or art["bg"][1],
-                art=art,
-                image_url=f"{API_PREFIX}/media/{p['slug']}.svg" if art else None,
-                price=Decimal(p["price"]),
-                compare_at_price=Decimal(p["compare"]) if p["compare"] else None,
-                stock=p["stock"],
-                rating=p["rating"],
-                reviews_count=p["reviews"],
-                is_featured=p["featured"],
+                kind=ProductKind.CARD,
+                slug=slug,
+                name=c["name"],
+                description=_card_description(c, card_set.name, official_counts[set_id], rarity_label),
+                price=price,
+                compare_at_price=compare_at,
+                stock=stock,
+                card=card,
+                is_featured=c["id"] in FEATURED,
             )
         )
+
+    for pack in POKEDOLLAR_PACKS:
+        db.add(
+            Product(
+                kind=ProductKind.POKEDOLLARS,
+                slug=pack["slug"],
+                name=pack["name"],
+                description=pack["description"],
+                price=Decimal(pack["price"]),
+                stock=None,
+                pokedollars=pack["pokedollars"],
+                is_featured=pack.get("featured", False),
+            )
+        )
+
+    for position, b in enumerate(BOOSTERS):
+        db.add(
+            Booster(
+                slug=b["slug"],
+                name=b["name"],
+                description=b["description"],
+                price=b["price"],
+                set_ids=b["sets"],
+                slots=b["slots"],
+                cover_card=cards[b["cover"]],
+                colors=b["colors"],
+                position=position,
+            )
+        )
+
     try:
         db.commit()
-        logger.info("Catalogue de démonstration inséré : %s produits", len(PRODUCTS))
+        logger.info(
+            "Catalogue PokéBling inséré : %s cartes, %s lots de PokéDollars, %s boosters",
+            len(cards), len(POKEDOLLAR_PACKS), len(BOOSTERS),
+        )
     except IntegrityError:
         # Une autre instance du service a inséré le catalogue en même temps
         db.rollback()

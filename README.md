@@ -1,22 +1,28 @@
-# Plateforme de paiement fictive et sa boutique marchande NovaShop
+# Plateforme de paiement fictive et sa boutique marchande PokéBling
 
 Démonstrateur du workshop **PROJECT RESILIENCE-ALPHA** : une **plateforme de paiement** fictive
 (`payment-service`) qui encaisse les paiements par carte pour le compte de marchands, et un marchand
-de démonstration, la boutique en ligne **NovaShop**, qui génère des transactions réelles de bout en bout.
-**Aucun paiement réel, aucune donnée bancaire réelle.**
+de démonstration, la boutique en ligne **PokéBling** (anciennement NovaShop), qui génère des transactions
+réelles de bout en bout. **Aucun paiement réel, aucune donnée bancaire réelle.**
 
 - **payment-service** est le système critique : transactions, remboursements, journal des opérations.
   C'est lui qui est attaqué, surveillé et rétabli. La preuve de reprise est une nouvelle transaction acceptée.
-- **NovaShop** est un marchand partenaire : site e-commerce spécialisé en **body pillows de personnages de
-  jeu vidéo** (accueil, catalogue filtrable, fiches produit recto / verso, panier, paiement, suivi des commandes).
+- **PokéBling** est un marchand partenaire : boutique de **cartes Pokémon numériques**. On y achète, par carte
+  bancaire, des cartes à l'unité (cher) ou des **PokéDollars** (monnaie virtuelle) ; les PokéDollars servent à
+  ouvrir des **boosters**, tirés au sort par le serveur ; chaque client a sa **collection**.
 
-Les personnages sont **originaux** (dragonne, paladin, nécromancienne, cyber-ninja, slime, héros 8-bit…),
-adultes et entièrement habillés. Leurs illustrations sont générées en SVG par shop-service à partir
-d'une « fiche d'apparence » stockée en base (`products.art`), voir `services/shop-service/app/art.py`.
+Les noms et caractéristiques des 609 cartes (5 sets : Set de Base, Jungle, Fossile, 151, Évolutions
+Prismatiques) viennent de l'API publique [TCGdex](https://tcgdex.dev), en français. Ils sont enregistrés dans
+`services/shop-service/app/data/cards.json` (généré par `tools/fetch_pokemon_cards.py`) : shop-service reste sur
+des réseaux sans accès à Internet. Les **images** ne sont pas téléchargées : le navigateur les charge chez TCGdex
+(`assets.tcgdex.net`). Sur un poste sans Internet, une carte de secours dessinée en CSS s'affiche à la place.
 
 ## Comptes de démonstration
 
-Créés automatiquement au démarrage d'auth-service (désactivable avec `SEED_DEMO_USERS=false`) :
+Créés automatiquement au démarrage d'auth-service (désactivable avec `SEED_DEMO_USERS=false`). Leurs adresses
+sont gardées de NovaShop, comme les autres identifiants techniques (projet compose `novashop`, réseau
+`novashop_monitoring-edge`, code marchand `novashop`, émetteur JWT `novashop-auth`) : les changer casserait la
+supervision et les scripts existants.
 
 | Nom          | Email              | Mot de passe |
 |--------------|--------------------|--------------|
@@ -33,7 +39,7 @@ flowchart LR
 
     F[frontend<br/>nginx + React/Tailwind<br/>passerelle /api/*]
     A[auth-service<br/>FastAPI · bcrypt · JWT]
-    S[shop-service · NovaShop<br/>FastAPI · catalogue, panier,<br/>commandes, visuels SVG]
+    S[shop-service · PokéBling<br/>FastAPI · cartes, PokéDollars,<br/>boosters, commandes, collection]
     P[payment-service<br/>FastAPI · transactions,<br/>remboursements, journal]
     DB[(postgres 16<br/>auth_db · shop_db · payment_db)]
 
@@ -48,8 +54,8 @@ flowchart LR
 | Service           | Rôle                                                              | Publié sur l'hôte          | Base         |
 |-------------------|-------------------------------------------------------------------|----------------------------|--------------|
 | `frontend`        | Sert la SPA React et fait **passerelle API** (reverse proxy)      | `HTTP_BIND:8080`           | –            |
-| `auth-service`    | Comptes clients NovaShop : inscription, connexion, JWT            | non                        | `auth_db`    |
-| `shop-service`    | NovaShop (marchand) : catalogue, panier, commandes                | non                        | `shop_db`    |
+| `auth-service`    | Comptes clients PokéBling : inscription, connexion, JWT           | non                        | `auth_db`    |
+| `shop-service`    | PokéBling (marchand) : cartes, PokéDollars, boosters, panier, commandes, collection | non | `shop_db` |
 | `payment-service` | Plateforme de paiement : transactions, remboursements, journal    | non                        | `payment_db` |
 | `postgres`        | Une instance, **une base + un rôle par service**                  | non                        | –            |
 | `adminer` (opt.)  | Interface web Postgres (`--profile tools`)                        | `127.0.0.1:8081` seulement | –            |
@@ -96,25 +102,33 @@ Conséquences, vérifiées sur la stack (sous Docker Desktop, avant le passage s
 ### Choix de conception
 
 - **Database-per-service** : chaque rôle (`auth_user`, `shop_user`, `payment_user`) n'a accès qu'à sa base.
-  Pas de clé étrangère entre services : `cart_items.user_id` / `orders.user_id` référencent l'id de
-  l'utilisateur d'auth-service, `transactions.merchant_reference` le numéro de commande NovaShop.
-- **Données de carte minimales** : NovaShop transmet la carte à `payment-service` sans la stocker et ne garde
+  Pas de clé étrangère entre services : `cart_items.user_id` / `orders.user_id` / `wallets.user_id`… référencent
+  l'id de l'utilisateur d'auth-service, `transactions.merchant_reference` le numéro de commande PokéBling.
+- **Données de carte minimales** : PokéBling transmet la carte à `payment-service` sans la stocker et ne garde
   que les 4 derniers chiffres et la référence `PAY_…`. La plateforme non plus ne stocke ni numéro complet ni CVC.
 - **Authentification marchand par clé API** (`X-API-Key`) : la plateforme n'en stocke que le hash SHA-256, et un
-  marchand ne voit que ses propres transactions. Elle ne connaît pas le secret JWT des clients NovaShop.
-- **Paiements idempotents** : NovaShop envoie son numéro de commande en `Idempotency-Key`. Une requête rejouée
+  marchand ne voit que ses propres transactions. Elle ne connaît pas le secret JWT des clients PokéBling.
+- **Paiements idempotents** : PokéBling envoie son numéro de commande en `Idempotency-Key`. Une requête rejouée
   (nouvelle tentative après un délai dépassé, double envoi) renvoie la transaction d'origine sans redébiter ;
   la même clé avec un autre montant est refusée (409). Les remboursements sont idempotents aussi.
 - **Cycle de vie journalisé** : `PENDING → AUTHORIZED → CAPTURED → REFUNDED` (ou `DECLINED`). Chaque changement
   d'état est inscrit dans `transaction_events` (en ajout seul) et dans les logs, au format `clé=valeur`. Toute
   autre transition lève une erreur.
-- **Mode dégradé** : si `payment-service` ne répond pas (délai de 3 s, 2 tentatives), NovaShop répond **503**
-  sans rien débiter ni modifier ; le catalogue et le panier restent utilisables. Si la commande ne peut pas être
-  enregistrée après un débit, NovaShop rembourse aussitôt (compensation).
+- **Mode dégradé** : si `payment-service` ne répond pas (délai de 3 s, 2 tentatives), PokéBling répond **503**
+  sans rien débiter ni modifier ; le catalogue, le panier, la collection et l'ouverture de boosters (payés en
+  PokéDollars) restent utilisables. Si la commande ne peut pas être enregistrée après un débit, PokéBling
+  rembourse aussitôt (compensation).
 - **Auth stateless** : auth-service signe un JWT HS256 (`sub`, `email`, `name`, `exp`, `iss`) ;
   shop-service le vérifie **localement** avec le secret partagé, donc sans appel réseau par requête.
-- **Le serveur fait foi** : prix, stocks, frais de port et totaux sont toujours recalculés par shop-service,
-  jamais envoyés par le navigateur. Les lignes de commande figent le nom et le prix au moment de l'achat.
+- **Le serveur fait foi** : prix, stocks et totaux sont toujours recalculés par shop-service, jamais envoyés
+  par le navigateur. Les lignes de commande figent le nom et le prix au moment de l'achat. Tout est numérique :
+  au paiement, les cartes rejoignent la collection et les PokéDollars le porte-monnaie, dans la même transaction
+  SQL que la commande (pas d'adresse ni de frais de port).
+- **PokéDollars et boosters** : porte-monnaie verrouillé à chaque mouvement, solde ≥ 0 imposé par la base,
+  journal des mouvements en ajout seul. Les cartes d'un booster sont **tirées par le serveur**
+  (`secrets.SystemRandom`), selon des probabilités publiées par `GET /api/shop/boosters`. Ouverture idempotente
+  (`Idempotency-Key`) : un double clic ne débite qu'une fois. Une commande dont les PokéDollars ont été dépensés
+  ne peut plus être annulée (pas de remboursement de monnaie déjà utilisée).
 - **Pas de survente** : au paiement, les produits sont verrouillés (`SELECT … FOR UPDATE`, triés par id
   pour éviter les interblocages). Deux clients ne peuvent pas acheter le dernier exemplaire en même temps.
   Le panier est verrouillé lui aussi, donc un double clic sur « Payer » ne crée pas deux commandes.
@@ -122,12 +136,12 @@ Conséquences, vérifiées sur la stack (sous Docker Desktop, avant le passage s
   À la connexion, il est fusionné dans le panier serveur (`POST /cart/merge`).
 - **Isolation réseau** : Postgres n'est que sur le réseau `backend` ; le frontend ne peut pas l'atteindre.
 - Images Python non-root avec `HEALTHCHECK` ; `depends_on: service_healthy` orchestre le démarrage.
-- Le catalogue de démonstration (5 univers, 17 body pillows + 4 accessoires) est inséré automatiquement
-  au premier démarrage, ainsi que les comptes de démo.
+- Le catalogue (609 cartes vendues à l'unité, prix et stock selon la rareté ; 4 lots de PokéDollars ; 6 boosters)
+  est inséré automatiquement au premier démarrage, ainsi que les comptes de démo.
 
 ## Démarrage
 
-Toute la plateforme tourne sur une **VM Linux** : NovaShop, l'assistant et la supervision (Prometheus, Loki,
+Toute la plateforme tourne sur une **VM Linux** : PokéBling, l'assistant et la supervision (Prometheus, Loki,
 Grafana, dans leur propre compose). Prérequis sur la VM : Docker Engine et le plugin compose
 (`docker compose version`) ; avec l'assistant (profil `ai`) sur processeur, 16 Go de RAM et 30 Go de disque
 libres sont conseillés. Docker Desktop convient pour développer sur un poste Windows.
@@ -144,7 +158,7 @@ docker compose up -d --build
 
 | URL                                    | Contenu                    |
 |----------------------------------------|----------------------------|
-| http://localhost:8080                  | Boutique NovaShop          |
+| http://localhost:8080                  | Boutique PokéBling         |
 | http://localhost:8080/api/shop/docs    | Swagger shop-service       |
 | http://localhost:8080/api/auth/docs    | Swagger auth-service       |
 | `/api/shop/redoc`, `/api/auth/redoc`   | Documentation ReDoc        |
@@ -158,7 +172,7 @@ docker compose up -d --build
 docker compose --profile tools up -d payment-console   # http://127.0.0.1:8082 → Swagger de payment-service
 ```
 
-Dans Swagger : **Authorize** → coller la clé API du marchand NovaShop (`MERCHANT_API_KEY`, par défaut
+Dans Swagger : **Authorize** → coller la clé API du marchand PokéBling (`MERCHANT_API_KEY`, par défaut
 `sk_test_novashop_dev_only_change_me`), puis `GET /transactions` liste les paiements passés sur la boutique,
 avec leur journal. Pour les tables elles-mêmes : Adminer (`docker compose --profile tools up -d adminer`,
 serveur `postgres`, utilisateur `payment_user`, base `payment_db`).
@@ -173,7 +187,8 @@ Arrêter la console : `docker compose --profile tools stop payment-console`.
 | `4000 0000 0000 0002` | Refusé par la banque (402)   |
 | `4000 0000 0000 9995` | Refusé, fonds insuffisants (402) |
 
-Livraison : 4,90 €, offerte dès 50 € (configurable via `SHIPPING_COST` et `FREE_SHIPPING_THRESHOLD`).
+Pour une transaction de test répétable (preuve de reprise), acheter un lot de PokéDollars : leur stock est
+illimité, alors que celui des cartes s'épuise.
 
 ### Tester l'API dans Swagger
 
@@ -199,8 +214,14 @@ docker compose down -v                 # arrêter ET supprimer les données (le 
 
 > Pas de migrations pour l'instant (`create_all`) : après une modification des modèles de shop-service,
 > réinitialisez ses tables (le catalogue est recréé au démarrage, les comptes ne sont pas touchés) :
-> `docker compose exec postgres psql -U postgres -d shop_db -c "DROP TABLE IF EXISTS order_items, orders, cart_items, products, categories CASCADE; DROP TYPE IF EXISTS order_status;"`
+> `docker compose exec postgres psql -U postgres -d shop_db -c "DROP TABLE IF EXISTS booster_openings, boosters, collection_items, wallet_entries, wallets, order_items, orders, cart_items, products, cards, card_sets CASCADE; DROP TYPE IF EXISTS order_status, product_kind, card_rarity, wallet_reason;"`
 > puis `docker compose restart shop-service`.
+>
+> **Passage de NovaShop à PokéBling** : rien à faire à la main. Au démarrage, shop-service reconnaît les tables
+> de l'ancienne boutique (body pillows), les supprime et crée celles de PokéBling (log
+> `Tables de l'ancienne boutique NovaShop détectées`). Les anciennes commandes NovaShop disparaissent ; les
+> comptes (`auth_db`) et les transactions (`payment_db`) sont conservés. Reconstruire `frontend`, `shop-service`,
+> `payment-service`, `auth-service` et `rag-service` : `docker compose up -d --build`.
 
 ## Assistant documentaire des opérateurs (IA)
 
@@ -267,7 +288,7 @@ sur le réseau (flèche = qui appelle qui) :
 ```mermaid
 flowchart LR
     subgraph vm["VM Linux (Docker Engine)"]
-      subgraph novashop["compose NovaShop"]
+      subgraph novashop["compose novashop (PokéBling)"]
         G[metrics-gateway<br/>jeton] -->|/metrics| A[auth-service] & S[shop-service] & P[payment-service] & R[rag-service]
         G --> X[nginx-exporter] -->|"stub_status :8081"| F[frontend]
         L[log-shipper<br/>Grafana Alloy] --> D[docker-socket-proxy<br/>lecture seule]
@@ -286,7 +307,7 @@ Les deux compose se rejoignent par le réseau Docker `novashop_monitoring-edge`,
 `monitoring` : Prometheus et Loki s'y branchent comme réseau externe et joignent les conteneurs par leur nom.
 
 ```bash
-# 1. NovaShop. Dans .env : METRICS_TOKEN (jeton fort) et LOKI_URL=http://loki:3100/loki/api/v1/push
+# 1. PokéBling (projet compose novashop). Dans .env : METRICS_TOKEN (jeton fort) et LOKI_URL=http://loki:3100/loki/api/v1/push
 docker compose --profile monitoring up -d      # crée le réseau novashop_monitoring-edge
 # 2. Supervision : brancher prometheus et loki sur ce réseau (ci-dessous), puis la lancer
 ```
@@ -340,11 +361,14 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 
 | Route            | Page                                                              |
 |------------------|-------------------------------------------------------------------|
-| `/`              | Accueil : bannière, avantages, catégories, coups de cœur, promotions |
-| `/products`      | Catalogue : recherche, catégories, filtres, tri, pagination       |
-| `/products/:slug`| Fiche produit : galerie recto / verso, caractéristiques, stock, ajout au panier |
-| `/cart`          | Panier : quantités, suppression, seuil de livraison offerte       |
-| `/checkout`      | Adresse + paiement par carte via la plateforme (connexion requise) |
+| `/`              | Accueil : cartes d'exception, boosters, lots de PokéDollars, sets |
+| `/cards`         | Cartes à l'unité : recherche, set, rareté, type, catégorie, tri, pagination |
+| `/cards/:slug`   | Fiche d'une carte : carte holographique, rareté, stock, ajout au panier, booster du set |
+| `/boosters`      | Boosters : prix en PokéDollars, probabilités, ouverture animée (connexion requise pour ouvrir) |
+| `/pokedollars`   | Lots de PokéDollars, solde et historique des mouvements           |
+| `/collection`    | Collection : avancement global et par set, valeur, cartes manquantes en grisé (connexion requise) |
+| `/cart`          | Panier : quantités, suppression, ce qui sera livré                |
+| `/checkout`      | Paiement par carte via la plateforme (connexion requise)          |
 | `/orders`        | Historique des commandes                                          |
 | `/orders/:id`    | Détail, confirmation après achat, annulation                      |
 | `/login`, `/register` | Authentification (le panier invité est conservé)             |
@@ -367,9 +391,12 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 
 | Méthode | Route                        | Auth | Description                                            |
 |---------|------------------------------|------|--------------------------------------------------------|
-| GET     | `/categories`                | –    | Catégories avec nombre de produits                     |
-| GET     | `/products`                  | –    | `category`, `q`, `featured`, `on_sale`, `in_stock`, `sort`, `limit`, `offset` |
-| GET     | `/products/{slug}`           | –    | Détail d'un produit                                    |
+| GET     | `/sets`                      | –    | Sets de cartes avec nombre de cartes                   |
+| GET     | `/sets/{set_id}/cards`       | –    | Toutes les cartes d'un set                             |
+| GET     | `/products`                  | –    | `kind`, `set`, `rarity`, `type`, `category`, `q`, `featured`, `on_sale`, `in_stock`, `sort`, `limit`, `offset` |
+| GET     | `/products/{slug}`           | –    | Détail d'un produit (carte ou lot de PokéDollars)      |
+| GET     | `/boosters`                  | –    | Boosters, prix en PokéDollars, probabilités par rareté |
+| POST    | `/boosters/{slug}/open`      | JWT  | Payer en PokéDollars et ouvrir (409 solde insuffisant ; `Idempotency-Key` facultative) |
 | POST    | `/cart/quote`                | –    | Chiffrer un panier invité                              |
 | GET     | `/cart`                      | JWT  | Mon panier (totaux calculés)                           |
 | POST    | `/cart/items`                | JWT  | Ajouter un article (409 si stock insuffisant)          |
@@ -380,8 +407,9 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 | POST    | `/orders`                    | JWT  | Payer le panier → commande (402 carte refusée, 409 stock, 503 paiement indisponible) |
 | GET     | `/orders`                    | JWT  | Mes commandes                                          |
 | GET     | `/orders/{id}`               | JWT  | Détail d'une commande                                  |
-| POST    | `/orders/{id}/cancel`        | JWT  | Annuler (remboursement via la plateforme + remise en stock) |
-| GET     | `/media/{slug}.svg`          | –    | Visuel du produit : `?view=pair` (défaut), `front`, `back` |
+| POST    | `/orders/{id}/cancel`        | JWT  | Annuler : remboursement via la plateforme, cartes et PokéDollars repris (409 s'ils ont été dépensés) |
+| GET     | `/wallet`                    | JWT  | Solde de PokéDollars et derniers mouvements            |
+| GET     | `/collection`                | JWT  | Cartes possédées, avancement par set, valeur           |
 | GET     | `/health`                    | –    | Sonde de santé                                         |
 
 **payment-service** (`/api/payment`, réseau interne uniquement)
@@ -406,20 +434,23 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 │   │   └── app/seed.py                 # comptes de démonstration
 │   ├── shop-service/
 │   │   └── app/
-│   │       ├── models.py               # Category, Product, CartItem, Order, OrderItem
-│   │       ├── seed.py                 # catalogue de démonstration + fiches d'apparence
-│   │       ├── art.py                  # générateur d'illustrations SVG (housses recto / verso)
-│   │       ├── cart_service.py         # règles du panier (stock, plafonds, frais de port)
-│   │       ├── order_service.py        # paiement du panier, annulation (verrous, compensation)
+│   │       ├── models.py               # CardSet, Card, Product, CartItem, Order, Wallet, Booster, CollectionItem…
+│   │       ├── data/cards.json         # cartes issues de TCGdex (noms, raretés ; pas d'images)
+│   │       ├── seed.py                 # catalogue : prix et stock par rareté, lots de PokéDollars, boosters
+│   │       ├── cart_service.py         # règles du panier (stock, plafonds)
+│   │       ├── order_service.py        # paiement du panier, livraison, annulation (verrous, compensation)
+│   │       ├── wallet_service.py       # porte-monnaie de PokéDollars (verrou, journal)
+│   │       ├── booster_service.py      # probabilités, tirage côté serveur, ouverture idempotente
+│   │       ├── collection_service.py   # collection de chaque client
 │   │       ├── payment.py              # client de payment-service (clé API, idempotence, 503)
-│   │       └── routers/                # catalog.py, cart.py, orders.py, media.py
+│   │       └── routers/                # catalog.py, boosters.py, cart.py, orders.py, account.py
 │   ├── payment-service/
 │   │   └── app/
 │   │       ├── models.py               # Merchant, Transaction (+ transitions), TransactionEvent
 │   │       ├── processor.py            # réseau carte / banque émettrice simulés, cartes de test
 │   │       ├── transaction_service.py  # création idempotente, capture, remboursement
 │   │       ├── security.py             # authentification marchand par clé API
-│   │       ├── seed.py                 # marchand de démo NovaShop
+│   │       ├── seed.py                 # marchand de démo PokéBling (code novashop)
 │   │       └── routes.py
 │   ├── rag-service/
 │   │   └── app/
@@ -435,19 +466,20 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 │   ├── metrics-gateway.conf.template   # passerelle des métriques : /metrics/<service>, jeton METRICS_TOKEN
 │   ├── alloy/config.alloy              # log-shipper : journaux des conteneurs → Loki
 │   └── prometheus-scrape.example.yml   # à copier dans le prometheus.yml de la supervision
-└── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx
+├── tools/fetch_pokemon_cards.py        # régénère data/cards.json depuis TCGdex (nécessite Internet)
+└── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx (logo et favicon dans public/)
     ├── nginx.conf                      # SPA + reverse proxy /api/* ; stub_status sur le port 8081 (non publié)
     └── src/{pages,components,context,utils}
 ```
 
 ## Pistes d'évolution
 
-- Rapprochement automatique NovaShop ↔ plateforme (commandes payées sans transaction capturée et inversement),
+- Rapprochement automatique PokéBling ↔ plateforme (commandes payées sans transaction capturée et inversement),
   à brancher sur la vérification post-reprise
-- Tokenisation de la carte côté navigateur : le numéro ne transiterait plus par NovaShop
+- Tokenisation de la carte côté navigateur : le numéro ne transiterait plus par PokéBling
 - Migrations **Alembic** à la place de `create_all`
 - Back-office admin (gestion des produits et des stocks, rôle dans le JWT)
-- Codes promo, liste de souhaits, avis clients
+- Codes promo, liste de souhaits, échange de cartes entre joueurs, revente des doublons en PokéDollars
 - JWT **RS256** + endpoint JWKS ; refresh tokens ; limitation du débit sur `/login`
 - Événements asynchrones (RabbitMQ ou Redis Streams) : email de confirmation, mise à jour des stocks
 - Tests (pytest + testcontainers), CI, puis déploiement Kubernetes

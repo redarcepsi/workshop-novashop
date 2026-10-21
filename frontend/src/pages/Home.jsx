@@ -1,61 +1,102 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { shopApi } from '../api.js'
+import BoosterPack from '../components/BoosterPack.jsx'
 import Icon from '../components/Icon.jsx'
-import ProductCard, { ProductGridSkeleton } from '../components/ProductCard.jsx'
-import ProductVisual from '../components/ProductVisual.jsx'
-import { ButtonLink } from '../components/ui.jsx'
-import { formatMoney } from '../utils/format.js'
+import { BrandLogo } from '../components/Logo.jsx'
+import PokemonCard from '../components/PokemonCard.jsx'
+import ProductCard, { CoinPile, ProductGridSkeleton } from '../components/ProductCard.jsx'
+import { ButtonLink, PD, SectionHeader } from '../components/ui.jsx'
+import { setLogo } from '../utils/cards.js'
+import { formatMoney, formatNumber } from '../utils/format.js'
 
-const PERKS = [
-  { icon: 'truck', title: 'Livraison discrète', text: 'Colis neutre, offert dès 50 €' },
-  { icon: 'refresh', title: 'Recto / verso', text: 'Deux faces imprimées en HD' },
-  { icon: 'sparkles', title: 'Peau de pêche', text: 'Ultra-doux, lavable à 30 °C' },
-  { icon: 'lock', title: 'Paiement sécurisé', text: 'Carte bancaire (100 % fictive)' },
+const STEPS = [
+  {
+    icon: 'wallet',
+    title: 'Rechargez en PokéDollars',
+    text: 'Payez par carte et recevez vos PokéDollars à l’instant, avec jusqu’à 40 % offerts.',
+    to: '/pokedollars',
+  },
+  {
+    icon: 'gift',
+    title: 'Ouvrez des boosters',
+    text: 'Chaque paquet cache 5 ou 6 cartes, dont une rare garantie. Qui sait ce qui brille dedans ?',
+    to: '/boosters',
+  },
+  {
+    icon: 'grid',
+    title: 'Complétez votre collection',
+    text: 'Suivez vos sets carte par carte. Il en manque une ? Achetez-la directement à l’unité.',
+    to: '/collection',
+  },
 ]
 
-function Hero({ products }) {
+function Hero({ showcase, stats }) {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-brand-50/70 via-white to-white">
-      <div className="pointer-events-none absolute -right-40 -top-40 h-[32rem] w-[32rem] rounded-full bg-brand-200/40 blur-3xl" />
-      <div className="container-page relative grid items-center gap-12 py-14 lg:grid-cols-2 lg:py-24">
+    <section className="relative overflow-hidden">
+      <div className="container-page relative grid items-center gap-14 py-14 lg:grid-cols-2 lg:py-24">
         <div>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-brand-700 shadow-sm ring-1 ring-brand-100">
-            <Icon name="sparkles" className="h-4 w-4" /> Nouvelle saison : Créatures & monstres
+          <BrandLogo className="-ml-3 mb-6 w-44 drop-shadow-[0_20px_40px_rgba(255,194,28,0.25)] sm:w-56" />
+          <span className="inline-flex items-center gap-2 rounded-full border border-gold-300/30 bg-gold-400/10 px-3 py-1 text-xs font-semibold text-gold-200">
+            <Icon name="sparkles" className="h-4 w-4" /> Nouveau : le booster Évolutions Prismatiques
           </span>
-          <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
-            Des body pillows de héros pour des nuits <span className="text-brand-600">légendaires.</span>
+          <h1 className="mt-6 font-display text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl">
+            Les cartes Pokémon qui font <span className="text-bling">bling.</span>
           </h1>
-          <p className="mt-5 max-w-lg text-lg text-slate-600">
-            Dragonnes, paladins, mages et cyber-ninjas imprimés recto / verso sur 160 cm de douceur.
-            Personnages 100 % habillés, câlins 100 % garantis.
+          <p className="mt-6 max-w-lg text-lg text-night-200">
+            Du Set de Base de 1999 aux illustrations spéciales d’aujourd’hui. Ouvrez des boosters
+            avec vos PokéDollars, ou offrez-vous directement la carte de vos rêves.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <ButtonLink to="/products" variant="dark" className="px-6 py-3">
-              Découvrir la boutique <Icon name="arrowRight" className="h-4 w-4" />
+          <div className="mt-9 flex flex-wrap gap-3">
+            <ButtonLink to="/boosters" className="px-6 py-3 text-base">
+              <Icon name="gift" className="h-5 w-5" /> Ouvrir un booster
             </ButtonLink>
-            <ButtonLink to="/products?on_sale=true" variant="secondary" className="px-6 py-3">
-              Voir les promotions
+            <ButtonLink to="/cards" variant="secondary" className="px-6 py-3 text-base">
+              Acheter des cartes <Icon name="arrowRight" className="h-4 w-4" />
             </ButtonLink>
           </div>
+          {stats && (
+            <dl className="mt-12 grid max-w-md grid-cols-3 gap-6 border-t border-white/10 pt-8">
+              {stats.map(([value, label]) => (
+                <div key={label} className="flex flex-col-reverse">
+                  <dt className="text-sm text-night-400">{label}</dt>
+                  <dd className="font-display text-3xl font-bold text-white">{formatNumber(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4 sm:gap-5">
-          {products.slice(0, 4).map((p, i) => (
+        {/* Éventail de trois cartes d'exception */}
+        <div className="relative mx-auto flex h-[26rem] w-full max-w-lg items-center justify-center sm:h-[30rem]">
+          <div className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-tr from-violet-600/30 via-fuchsia-500/10 to-gold-400/30 blur-3xl" />
+          {showcase.map((product, i) => (
             <Link
-              key={p.id}
-              to={`/products/${p.slug}`}
-              className={`group relative overflow-hidden rounded-3xl shadow-sm ring-1 ring-slate-900/5 ${i % 2 ? 'translate-y-8' : ''}`}
+              key={product.id}
+              to={`/cards/${product.slug}`}
+              className="absolute w-44 sm:w-56"
+              style={{
+                transform: `translateX(${(i - 1) * 62}%) rotate(${(i - 1) * 10}deg) translateY(${i === 1 ? -6 : 18}px)`,
+                zIndex: i === 1 ? 3 : 1,
+              }}
             >
-              <ProductVisual item={p} className="aspect-square w-full" />
-              <span className="absolute bottom-3 left-3 right-3 truncate rounded-xl bg-white/90 px-3 py-2 text-xs font-semibold text-slate-900 backdrop-blur">
-                {p.name} · {formatMoney(p.price)}
-              </span>
+              <div className="animate-float" style={{ animationDelay: `${i * 1.2}s` }}>
+                <PokemonCard card={product.card} quality="high" className="shadow-2xl shadow-black/60" />
+              </div>
+              {i === 1 && (
+                <span className="absolute -bottom-12 left-1/2 w-max -translate-x-1/2 rounded-full bg-night-900/90 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/15 backdrop-blur">
+                  {product.name} · <span className="text-gold-200">{formatMoney(product.price)}</span>
+                </span>
+              )}
             </Link>
           ))}
-          {products.length === 0 &&
-            Array.from({ length: 4 }, (_, i) => (
-              <div key={i} className={`aspect-square animate-pulse rounded-3xl bg-slate-100 ${i % 2 ? 'translate-y-8' : ''}`} />
+          {showcase.length === 0 &&
+            [0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="absolute aspect-[63/88] w-44 animate-pulse rounded-xl bg-white/5 sm:w-56"
+                style={{ transform: `translateX(${(i - 1) * 62}%) rotate(${(i - 1) * 10}deg)` }}
+              />
             ))}
         </div>
       </div>
@@ -63,109 +104,143 @@ function Hero({ products }) {
   )
 }
 
-function SectionHeader({ title, subtitle, link, linkLabel = 'Tout voir' }) {
-  return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{title}</h2>
-        {subtitle && <p className="mt-1 text-slate-500">{subtitle}</p>}
-      </div>
-      {link && (
-        <Link to={link} className="flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
-          {linkLabel} <Icon name="arrowRight" className="h-4 w-4" />
-        </Link>
-      )}
-    </div>
-  )
-}
-
 export default function Home() {
-  const [categories, setCategories] = useState([])
+  const [showcase, setShowcase] = useState([])
   const [featured, setFeatured] = useState(null)
-  const [deals, setDeals] = useState([])
+  const [boosters, setBoosters] = useState([])
+  const [packs, setPacks] = useState([])
+  const [sets, setSets] = useState([])
 
   useEffect(() => {
-    shopApi.categories().then(setCategories).catch(() => {})
-    shopApi.products({ featured: true, limit: 8 }).then((r) => setFeatured(r.items)).catch(() => setFeatured([]))
-    shopApi.products({ on_sale: true, limit: 4 }).then((r) => setDeals(r.items)).catch(() => {})
+    shopApi
+      .products({ kind: 'CARD', featured: true, sort: 'price_desc', limit: 11 })
+      .then((r) => {
+        setShowcase(r.items.slice(0, 3))
+        setFeatured(r.items.slice(3, 11))
+      })
+      .catch(() => setFeatured([]))
+    shopApi.boosters().then(setBoosters).catch(() => {})
+    shopApi.products({ kind: 'POKEDOLLARS', sort: 'price_asc' }).then((r) => setPacks(r.items)).catch(() => {})
+    shopApi.sets().then(setSets).catch(() => {})
   }, [])
-
-  const bestDiscount = Math.max(0, ...deals.map((d) => d.discount_percent ?? 0))
 
   return (
     <>
-      <Hero products={featured ?? []} />
+      <Hero
+        showcase={showcase}
+        stats={
+          sets.length > 0 && [
+            [sets.reduce((n, s) => n + s.card_count, 0), 'cartes'],
+            [sets.length, 'sets'],
+            [boosters.length, 'boosters'],
+          ]
+        }
+      />
 
-      <section className="border-y border-slate-100 bg-white">
-        <div className="container-page grid grid-cols-2 gap-6 py-8 lg:grid-cols-4">
-          {PERKS.map((p) => (
-            <div key={p.title} className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                <Icon name={p.icon} />
+      <section className="container-page">
+        <div className="grid gap-4 md:grid-cols-3">
+          {STEPS.map((s, i) => (
+            <Link key={s.title} to={s.to} className="panel group relative p-6 transition hover:-translate-y-0.5 hover:border-gold-300/30">
+              <span className="absolute right-5 top-4 font-display text-5xl font-bold text-white/5">{i + 1}</span>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-gold-300 to-gold-600 text-night-950 shadow-lg shadow-gold-500/20">
+                <Icon name={s.icon} className="h-6 w-6" strokeWidth={2} />
               </span>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{p.title}</p>
-                <p className="text-xs text-slate-500">{p.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="container-page mt-20">
-        <SectionHeader title="Choisissez votre univers" link="/products" linkLabel="Toute la boutique" />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {categories.map((c) => (
-            <Link
-              key={c.slug}
-              to={`/products?category=${c.slug}`}
-              className="group flex flex-col items-center rounded-2xl border border-slate-200/70 bg-white p-5 text-center transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md"
-            >
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-50 text-4xl transition group-hover:scale-110 group-hover:bg-brand-50">
-                {c.emoji}
-              </span>
-              <span className="mt-3 text-sm font-semibold text-slate-900">{c.name}</span>
-              <span className="text-xs text-slate-500">{c.product_count} produits</span>
+              <h3 className="mt-5 font-display text-xl font-semibold text-white">{s.title}</h3>
+              <p className="mt-2 text-sm text-night-300">{s.text}</p>
             </Link>
           ))}
         </div>
       </section>
 
-      <section className="container-page mt-20">
-        <SectionHeader title="Les plus câlinés" subtitle="Les légendaires de la boutique, approuvés par la guilde." link="/products?featured=true" />
-        <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 lg:grid-cols-4">
+      <section className="container-page mt-24">
+        <SectionHeader
+          eyebrow="Payés en PokéDollars"
+          title="Les boosters"
+          subtitle="Du Set de Base de 1999 au tout nouveau Évolutions Prismatiques. Les cartes sont tirées par nos serveurs, à chaque ouverture."
+          link="/boosters"
+          linkLabel="Ouvrir un booster"
+        />
+        <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6">
+          {boosters.map((b) => (
+            <Link key={b.slug} to="/boosters" className="group text-center">
+              <BoosterPack booster={b} className="transition duration-300 group-hover:-translate-y-2 group-hover:rotate-2" />
+              <p className="mt-4 text-sm font-semibold text-white">{b.name.replace('Booster ', '')}</p>
+              <PD amount={b.price} className="mt-1 text-sm text-gold-200" />
+            </Link>
+          ))}
+          {boosters.length === 0 && Array.from({ length: 6 }, (_, i) => <div key={i} className="aspect-[5/8] animate-pulse rounded-xl bg-white/5" />)}
+        </div>
+      </section>
+
+      <section className="container-page mt-24">
+        <SectionHeader
+          eyebrow="À l’unité"
+          title="Cartes d’exception"
+          subtitle="Les graals des collectionneurs, en exemplaires très limités. Passez la souris dessus pour les voir briller."
+          link="/cards?featured=true"
+        />
+        <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4">
           {featured ? featured.map((p) => <ProductCard key={p.id} product={p} />) : <ProductGridSkeleton count={8} />}
         </div>
       </section>
 
-      {deals.length > 0 && (
-        <section className="container-page mt-20">
-          <div className="relative grid items-center gap-10 overflow-hidden rounded-3xl bg-slate-900 px-6 py-12 sm:px-12 lg:grid-cols-2">
-            <div className="pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-rose-500/20 blur-3xl" />
+      {packs.length > 0 && (
+        <section className="container-page mt-24">
+          <div className="relative grid items-center gap-10 overflow-hidden rounded-3xl border border-gold-300/20 bg-gradient-to-br from-night-800 via-night-900 to-night-950 px-6 py-12 sm:px-12 lg:grid-cols-2">
+            <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-gold-400/20 blur-3xl" />
             <div className="relative">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-3 py-1 text-xs font-semibold text-rose-300">
-                <Icon name="tag" className="h-4 w-4" /> Soldes de la guilde
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-400/15 px-3 py-1 text-xs font-semibold text-gold-200">
+                <Icon name="wallet" className="h-4 w-4" /> Monnaie PokéBling
               </span>
-              <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                Jusqu’à −{bestDiscount} % sur une sélection
+              <h2 className="mt-5 font-display text-4xl font-bold tracking-tight text-white">
+                Faites le plein de <span className="text-bling">PokéDollars</span>
               </h2>
-              <p className="mt-3 max-w-md text-slate-300">
-                Des prix doux sur nos héros les plus câlinés, dans la limite des stocks disponibles.
+              <p className="mt-3 max-w-md text-night-300">
+                Environ 100 PokéDollars par euro, et jusqu’à 40 % offerts sur les gros lots. Crédités dès le paiement,
+                ils servent à ouvrir tous les boosters de la boutique.
               </p>
-              <ButtonLink to="/products?on_sale=true" variant="light" className="mt-8 px-6 py-3">
-                J’en profite <Icon name="arrowRight" className="h-4 w-4" />
+              <ButtonLink to="/pokedollars" className="mt-8 px-6 py-3">
+                Voir les lots <Icon name="arrowRight" className="h-4 w-4" />
               </ButtonLink>
             </div>
             <div className="relative grid grid-cols-2 gap-4">
-              {deals.map((d) => (
-                <Link key={d.id} to={`/products/${d.slug}`} className="group relative overflow-hidden rounded-2xl">
-                  <ProductVisual item={d} size="sm" view="front" className="aspect-[4/3] w-full" />
-                  <span className="absolute right-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-xs font-bold text-white">
-                    −{d.discount_percent} %
-                  </span>
+              {packs.map((p, i) => (
+                <Link key={p.id} to="/pokedollars" className="panel flex items-center gap-4 p-4 transition hover:border-gold-300/40">
+                  <CoinPile level={i + 1} className="aspect-square w-14 shrink-0" />
+                  <div>
+                    <PD amount={p.pokedollars} className="text-lg text-gold-100" />
+                    <p className="text-sm text-night-300">{formatMoney(p.price)}</p>
+                  </div>
                 </Link>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {sets.length > 0 && (
+        <section className="container-page mt-24">
+          <SectionHeader eyebrow="Explorer" title="Par set" link="/cards" linkLabel="Toutes les cartes" />
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {sets.map((s) => (
+              <Link
+                key={s.id}
+                to={`/cards?set=${encodeURIComponent(s.id)}&sort=number`}
+                className="panel group flex flex-col items-center p-5 text-center transition hover:-translate-y-0.5 hover:border-white/20"
+              >
+                <div className="flex h-16 w-full items-center justify-center">
+                  {s.logo_url ? (
+                    <img src={setLogo(s.logo_url)} alt="" className="max-h-full max-w-full object-contain transition group-hover:scale-105" loading="lazy" />
+                  ) : (
+                    <Icon name="cards" className="h-8 w-8 text-night-300" />
+                  )}
+                </div>
+                <p className="mt-4 text-sm font-semibold text-white">{s.name}</p>
+                <p className="text-xs text-night-400">
+                  {s.card_count} cartes · {s.release_date?.slice(0, 4)}
+                </p>
+              </Link>
+            ))}
           </div>
         </section>
       )}

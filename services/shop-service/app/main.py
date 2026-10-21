@@ -7,7 +7,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from .config import API_PREFIX, settings
 from .database import init_db
-from .routers import cart, catalog, media, orders
+from .routers import account, boosters, cart, catalog, orders
 from .schemas import HealthOut
 
 logging.basicConfig(level=logging.INFO)
@@ -20,25 +20,29 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="NovaShop — Shop Service",
-    version="1.0.0",
+    title="PokéBling — Shop Service",
+    version="2.0.0",
     description=(
-        "API métier de la boutique en ligne fictive **NovaShop**, spécialisée en body pillows de personnages "
-        "de jeu vidéo originaux : catalogue, panier, commandes et visuels SVG. Le paiement par carte est confié "
-        "à la plateforme de paiement (`payment-service`), dont NovaShop est un marchand.\n\n"
-        "- **Catalogue** : public, sans authentification\n"
-        "- **Panier** et **Commandes** : exigent un **JWT** délivré par `auth-service` "
-        "(`POST /api/auth/login`). Cliquer sur **Authorize** et coller le `access_token`.\n\n"
+        "API métier de la boutique fictive **PokéBling** : cartes Pokémon numériques à l'unité, lots de "
+        "PokéDollars (monnaie virtuelle), boosters à ouvrir avec ces PokéDollars, et collection de chaque joueur. "
+        "Le paiement par carte (cartes à l'unité, PokéDollars) est confié à la plateforme de paiement "
+        "(`payment-service`), dont PokéBling est un marchand ; les boosters se paient en PokéDollars.\n\n"
+        "Noms et caractéristiques des cartes : [TCGdex](https://tcgdex.dev). Les images sont servies par TCGdex.\n\n"
+        "- **Catalogue** et **Boosters** (liste) : publics, sans authentification\n"
+        "- **Panier**, **Commandes**, **PokéDollars**, **Collection** et ouverture de boosters : exigent un **JWT** "
+        "délivré par `auth-service` (`POST /api/auth/login`). Cliquer sur **Authorize** et coller le `access_token`.\n\n"
         "⚠️ Boutique de démonstration : aucun paiement réel, aucune donnée bancaire conservée."
     ),
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",
     openapi_url=f"{API_PREFIX}/openapi.json",
     openapi_tags=[
-        {"name": "Catalogue", "description": "Catégories et produits (public)"},
+        {"name": "Catalogue", "description": "Sets, cartes et produits (public)"},
+        {"name": "Boosters", "description": "Boosters payés en PokéDollars : liste publique, ouverture connectée"},
         {"name": "Panier", "description": "Panier de l'utilisateur connecté, et chiffrage d'un panier invité"},
-        {"name": "Commandes", "description": "Paiement du panier, historique et annulation"},
-        {"name": "Médias", "description": "Visuels des produits, générés en SVG"},
+        {"name": "Commandes", "description": "Paiement du panier par carte, historique et annulation"},
+        {"name": "PokéDollars", "description": "Porte-monnaie de monnaie virtuelle"},
+        {"name": "Collection", "description": "Cartes possédées"},
         {"name": "Système", "description": "Supervision"},
     ],
     lifespan=lifespan,
@@ -59,9 +63,10 @@ def health():
 
 
 app.include_router(catalog.router)
+app.include_router(boosters.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
-app.include_router(media.router)
+app.include_router(account.router)
 
 # Métriques Prometheus (requêtes par route, code HTTP et durée) sur /metrics : hors du préfixe /api/shop, nginx ne
 # la relaie pas. Seule la passerelle metrics-gateway (profil "monitoring") la publie, avec un jeton.

@@ -1,6 +1,6 @@
 # Processus d'authentification des clients (JWT)
 
-Comment un client NovaShop crée son compte, se connecte, et comment `shop-service` reconnaît ses requêtes
+Comment un client PokéBling crée son compte, se connecte, et comment `shop-service` reconnaît ses requêtes
 sans appeler `auth-service`. Code : `services/auth-service/app/security.py`,
 `services/shop-service/app/security.py`, `frontend/src/context/AuthContext.jsx`.
 
@@ -30,7 +30,7 @@ sequenceDiagram
 
 1. Le navigateur envoie `POST /api/auth/login` (formulaire `username` = email, `password`).
 2. `auth-service` cherche l'utilisateur, compare le mot de passe avec le hash bcrypt, et signe un JWT HS256.
-3. Le front range le jeton dans `localStorage` (`novashop_token`) et appelle `GET /api/auth/me` pour
+3. Le front range le jeton dans `localStorage` (`pokebling_token`) et appelle `GET /api/auth/me` pour
    afficher le profil.
 4. Juste après, si le visiteur avait un panier invité, le front appelle `POST /api/shop/cart/merge`.
 5. Ensuite, chaque appel au panier ou aux commandes porte `Authorization: Bearer <jeton>`. `shop-service`

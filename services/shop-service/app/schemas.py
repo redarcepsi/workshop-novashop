@@ -6,26 +6,45 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from .config import settings
-from .models import OrderStatus
+from .models import OrderStatus, ProductKind, Rarity, WalletReason
+
+
+# ---------------------------------------------------------------- cartes
+
+
+class SetRef(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    logo_url: str | None
+
+
+class SetOut(SetRef):
+    serie: str
+    release_date: date | None
+    card_count: int = 0
+
+
+class CardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(examples=["base1-4"])
+    slug: str
+    number: int
+    name: str
+    category: str
+    rarity: Rarity
+    rarity_label: str
+    types: list[str]
+    hp: int | None
+    illustrator: str | None
+    description: str | None
+    image_url: str = Field(description="Image TCGdex : ajouter /low.webp (vignette) ou /high.webp")
+    set: SetRef
 
 
 # ---------------------------------------------------------------- catalogue
-
-
-class CategoryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    slug: str
-    name: str
-    emoji: str
-    product_count: int = 0
-
-
-class CategoryRef(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    slug: str
-    name: str
 
 
 class ProductOut(BaseModel):
@@ -33,24 +52,20 @@ class ProductOut(BaseModel):
 
     id: int
     slug: str
+    kind: ProductKind
     name: str
     description: str
-    details: list[str]
     price: Decimal
     compare_at_price: Decimal | None
-    stock: int
-    category: CategoryRef
-    emoji: str
-    color: str
-    image_url: str | None
-    rating: float
-    reviews_count: int
+    stock: int | None = Field(description="Exemplaires disponibles ; null : illimité")
+    card: CardOut | None = Field(description="La carte vendue (produits CARD)")
+    pokedollars: int | None = Field(description="PokéDollars crédités par unité (produits POKEDOLLARS)")
     is_featured: bool
 
     @computed_field
     @property
     def in_stock(self) -> bool:
-        return self.stock > 0
+        return self.stock is None or self.stock > 0
 
     @computed_field
     @property
@@ -97,11 +112,9 @@ class CartOut(BaseModel):
 
     items: list[CartItemOut]
     items_count: int
-    subtotal: Decimal
-    shipping_cost: Decimal
     total: Decimal
-    free_shipping_threshold: Decimal
-    free_shipping_remaining: Decimal
+    pokedollars: int = Field(description="PokéDollars crédités au paiement")
+    cards_count: int = Field(description="Cartes ajoutées à la collection au paiement")
 
 
 # ---------------------------------------------------------------- commande
@@ -117,14 +130,6 @@ def _luhn_valid(number: str) -> bool:
                 d -= 9
         total += d
     return total % 10 == 0
-
-
-class ShippingAddress(BaseModel):
-    full_name: str = Field(min_length=2, max_length=100, examples=["Alice Martin"])
-    address: str = Field(min_length=5, max_length=200, examples=["12 rue des Lilas"])
-    postal_code: str = Field(pattern=r"^[A-Za-z0-9 -]{3,10}$", examples=["75011"])
-    city: str = Field(min_length=1, max_length=100, examples=["Paris"])
-    country: str = Field(default="France", min_length=2, max_length=60)
 
 
 class CardPayment(BaseModel):
@@ -151,7 +156,7 @@ class CardPayment(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
-    shipping: ShippingAddress
+    # Produits numériques : pas d'adresse de livraison (un champ "shipping" envoyé par un ancien client est ignoré)
     payment: CardPayment
 
 
@@ -161,8 +166,9 @@ class OrderItemOut(BaseModel):
     product_id: int | None
     product_slug: str
     product_name: str
-    emoji: str
-    color: str
+    kind: ProductKind
+    card_id: str | None
+    pokedollars: int | None
     image_url: str | None
     unit_price: Decimal
     quantity: int
@@ -176,14 +182,8 @@ class OrderOut(BaseModel):
     number: str
     status: OrderStatus
     items: list[OrderItemOut]
-    subtotal: Decimal
-    shipping_cost: Decimal
     total: Decimal
-    shipping_name: str
-    shipping_address: str
-    shipping_postal_code: str
-    shipping_city: str
-    shipping_country: str
+    pokedollars: int
     card_last4: str
     payment_reference: str
     created_at: datetime
@@ -193,6 +193,91 @@ class OrderOut(BaseModel):
     @property
     def items_count(self) -> int:
         return sum(item.quantity for item in self.items)
+
+
+# ---------------------------------------------------------------- porte-monnaie
+
+
+class WalletEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    amount: int
+    balance_after: int
+    reason: WalletReason
+    reference: str
+    label: str
+    created_at: datetime
+
+
+class WalletOut(BaseModel):
+    balance: int
+    entries: list[WalletEntryOut] = Field(description="Les 30 derniers mouvements, du plus récent au plus ancien")
+
+
+# ---------------------------------------------------------------- boosters
+
+
+class BoosterOdds(BaseModel):
+    rarity: Rarity
+    chance: float = Field(description="Probabilité d'obtenir au moins une carte de cette rareté dans un booster")
+
+
+class BoosterOut(BaseModel):
+    slug: str
+    name: str
+    description: str
+    price: int = Field(description="En PokéDollars")
+    card_count: int
+    sets: list[SetRef]
+    cover: CardOut
+    colors: list[str]
+    odds: list[BoosterOdds]
+
+
+class BoosterRef(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    slug: str
+    name: str
+
+
+class OpenedCard(BaseModel):
+    card: CardOut
+    is_new: bool = Field(description="Absente de la collection avant cette ouverture")
+
+
+class BoosterOpeningOut(BaseModel):
+    id: uuid.UUID
+    booster: BoosterRef
+    price: int
+    balance: int = Field(description="Solde de PokéDollars après l'ouverture")
+    cards: list[OpenedCard]
+    opened_at: datetime
+
+
+# ---------------------------------------------------------------- collection
+
+
+class CollectionSet(SetRef):
+    owned: int
+    total: int
+
+
+class CollectionItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    card: CardOut
+    quantity: int
+    first_obtained_at: datetime
+
+
+class CollectionOut(BaseModel):
+    distinct: int = Field(description="Cartes différentes possédées")
+    copies: int = Field(description="Exemplaires possédés, doublons compris")
+    total: int = Field(description="Cartes différentes au catalogue")
+    value: Decimal = Field(description="Valeur de la collection au prix de la boutique")
+    sets: list[CollectionSet]
+    items: list[CollectionItemOut]
 
 
 class HealthOut(BaseModel):

@@ -1,28 +1,25 @@
 const currency = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })
+const integer = new Intl.NumberFormat('fr-FR')
+const percent = new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 1 })
 const longDate = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' })
 const dateTime = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
-const weekdayDate = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
 
 // L'API renvoie les montants en chaînes ("129.00") pour ne pas perdre en précision
 export const formatMoney = (value) => currency.format(Number(value ?? 0))
+
+export const formatNumber = (value) => integer.format(value ?? 0)
+
+export const formatPD = (value) => `${integer.format(value ?? 0)} PokéDollars`
+
+/** Probabilité : « 33,3 % », « < 0,1 % », « 100 % ». */
+export const formatChance = (p) => (p >= 1 ? '100 %' : p > 0 && p < 0.001 ? '< 0,1 %' : percent.format(p))
 
 export const formatDate = (iso) => longDate.format(new Date(iso))
 
 export const formatDateTime = (iso) => dateTime.format(new Date(iso))
 
-/** Date de livraison estimée : n jours ouvrés après la commande. */
-export const estimatedDelivery = (iso, businessDays = 3) => {
-  const d = new Date(iso)
-  let added = 0
-  while (added < businessDays) {
-    d.setDate(d.getDate() + 1)
-    if (d.getDay() !== 0 && d.getDay() !== 6) added++
-  }
-  return weekdayDate.format(d)
-}
-
 export const plural = (count, singular, pluralForm = `${singular}s`) =>
-  `${count} ${count > 1 ? pluralForm : singular}`
+  `${formatNumber(count)} ${count > 1 ? pluralForm : singular}`
 
 export const initials = (name = '') =>
   name
@@ -33,8 +30,8 @@ export const initials = (name = '') =>
     .join('')
 
 export const ORDER_STATUS = {
-  PAID: { label: 'Confirmée', className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' },
-  CANCELLED: { label: 'Annulée', className: 'bg-slate-100 text-slate-600 ring-slate-500/20' },
+  PAID: { label: 'Payée', className: 'bg-emerald-400/10 text-emerald-300 ring-emerald-400/30' },
+  CANCELLED: { label: 'Annulée', className: 'bg-white/5 text-night-300 ring-white/15' },
 }
 
 export const formatCardNumber = (v) =>

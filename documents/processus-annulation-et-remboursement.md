@@ -1,7 +1,8 @@
 # Processus d'annulation et de remboursement
 
 Ce qui se passe quand un client annule une commande payée : `shop-service` fait rembourser la transaction par
-`payment-service`, remet les articles en stock et passe la commande en `CANCELLED`. Code :
+`payment-service`, reprend ce qui a été livré (PokéDollars, cartes), remet les cartes en stock et passe la
+commande en `CANCELLED`. Code :
 `services/shop-service/app/order_service.py` (`cancel`), `services/payment-service/app/transaction_service.py`
 (`refund`).
 
@@ -15,11 +16,12 @@ sequenceDiagram
     participant P as payment-service
     participant PDB as payment_db
     B->>S: POST /api/shop/orders/{id}/cancel (Bearer)
-    S->>SDB: verrouille la commande (FOR UPDATE)
+    S->>SDB: verrouille la commande, le porte-monnaie<br/>et les cartes achetées (FOR UPDATE)
+    S->>S: PokéDollars et cartes encore là ?
     S->>P: POST /api/payment/transactions/PAY_…/refund
     P->>PDB: verrouille la transaction, CAPTURED → REFUNDED
     P-->>S: 200 REFUNDED
-    S->>SDB: stock += qté, commande CANCELLED
+    S->>SDB: reprend PokéDollars et cartes, stock += qté,<br/>commande CANCELLED
     S-->>B: 200 commande annulée
 ```
 
@@ -28,11 +30,16 @@ sequenceDiagram
 1. `shop-service` charge la commande du client et la verrouille. Commande d'un autre client ou inexistante :
    404 `Commande introuvable`.
 2. Si elle n'est plus `PAID` : 409 `Cette commande est déjà annulée`.
-3. **Remboursement d'abord** : appel de `POST /api/payment/transactions/{payment_reference}/refund`, avec les
+3. **Contrôle de ce qui a été livré** : si la commande a crédité des PokéDollars, le porte-monnaie est
+   verrouillé et son solde doit les couvrir, sinon 409
+   `Les PokéDollars de cette commande ont déjà été dépensés : elle ne peut plus être annulée`. Les cartes
+   achetées doivent être dans la collection, sinon 409. Rien n'est remboursé dans ces cas.
+4. **Remboursement ensuite** : appel de `POST /api/payment/transactions/{payment_reference}/refund`, avec les
    mêmes délais et nouvelles tentatives que le paiement (2 tentatives, 3 s chacune).
-4. Remise en stock : les produits sont verrouillés (triés par id) et leur stock augmenté de la quantité
-   commandée. Un produit supprimé du catalogue entre-temps est ignoré.
-5. Commande passée en `CANCELLED`, `cancelled_at` renseigné, `COMMIT`.
+5. Reprise : PokéDollars débités (`wallet_entries` `REFUND`), exemplaires retirés de la collection.
+6. Remise en stock : les produits sont verrouillés (triés par id) et le stock des cartes augmenté de la
+   quantité commandée. Un produit supprimé du catalogue entre-temps est ignoré.
+7. Commande passée en `CANCELLED`, `cancelled_at` renseigné, `COMMIT`.
 
 ## Pourquoi rembourser avant d'annuler
 
@@ -52,6 +59,7 @@ la transaction est déjà `REFUNDED`. L'annulation se termine alors normalement.
 | `payment-service` injoignable ou 5xx, 2 fois | 503 | reste `PAID` | inchangée |
 | Remboursement refusé (409 transaction non capturée, 404, 401…) | 502 `Le remboursement n'a pas pu être effectué` | reste `PAID` | inchangée |
 | Commande déjà annulée | 409 | inchangée | inchangée |
+| PokéDollars déjà dépensés, ou cartes absentes de la collection | 409 | reste `PAID` | inchangée |
 
 ## Remboursement côté payment-service
 
@@ -64,7 +72,7 @@ la transaction est déjà `REFUNDED`. L'annulation se termine alors normalement.
 4. si elle n'est pas `CAPTURED` (par exemple `DECLINED`) : 409
    `Seule une transaction capturée peut être remboursée` ;
 5. sinon : passage en `REFUNDED`, `refunded_at` renseigné, événement
-   `Remboursement demandé par NovaShop`, `COMMIT`, puis journal
+   `Remboursement demandé par PokéBling`, `COMMIT`, puis journal
    `transaction reference=PAY_… … status=REFUNDED …`.
 
 Le remboursement est toujours intégral : il n'existe pas de remboursement partiel.

@@ -111,16 +111,16 @@ profil `monitoring` doit être lancé avant la supervision : c'est lui qui crée
 ### Navigateur vers auth-service et shop-service : JWT
 
 `auth-service` signe un JWT HS256 à la connexion. Le navigateur le garde dans `localStorage`
-(`novashop_token`) et l'envoie dans `Authorization: Bearer <jeton>`. nginx relaie l'en-tête tel quel.
+(`pokebling_token`) et l'envoie dans `Authorization: Bearer <jeton>`. nginx relaie l'en-tête tel quel.
 `shop-service` vérifie le jeton **localement** avec le même secret `JWT_SECRET` : aucun appel réseau vers
 `auth-service` par requête. Détails : `processus-authentification-jwt.md`.
 
 ### shop-service vers payment-service : clé API marchand
 
-NovaShop est un marchand de la plateforme. `shop-service` envoie sa clé dans `X-API-Key` (variable
+PokéBling est un marchand de la plateforme. `shop-service` envoie sa clé dans `X-API-Key` (variable
 `PAYMENT_API_KEY`, alimentée par `MERCHANT_API_KEY`). `payment-service` en calcule le SHA-256 et cherche le
 marchand correspondant dans `merchants.api_key_hash`. Chaque paiement porte aussi `Idempotency-Key` = numéro
-de commande. `payment-service` ne connaît pas le secret JWT des clients NovaShop.
+de commande. `payment-service` ne connaît pas le secret JWT des clients PokéBling.
 
 ### assistant-ui vers rag-service : clé partagée
 

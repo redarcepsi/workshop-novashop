@@ -19,10 +19,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="NovaShop — Auth Service",
+    title="PokéBling — Auth Service",
     version="1.0.0",
     description=(
-        "Service d'authentification de la boutique fictive **NovaShop**.\n\n"
+        "Service d'authentification de la boutique fictive **PokéBling**.\n\n"
         "- Mots de passe hachés avec **bcrypt**\n"
         "- Jetons **JWT** (HS256) signés avec un secret partagé avec `shop-service`\n\n"
         "Pour tester : `POST /register`, puis bouton **Authorize** (email dans *username*)."

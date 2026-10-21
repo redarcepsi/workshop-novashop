@@ -1,6 +1,6 @@
 # Routes d'auth-service
 
-`auth-service` gère les comptes clients de la boutique NovaShop : inscription, connexion et profil. API
+`auth-service` gère les comptes clients de la boutique PokéBling : inscription, connexion et profil. API
 FastAPI, préfixe `/api/auth`, port interne 8000, base `auth_db`. Depuis l'extérieur, elle n'est joignable que
 par la passerelle nginx : `http://<hôte>:8080/api/auth/...`. Code : `services/auth-service/app/routes.py`.
 

@@ -23,7 +23,7 @@ app = FastAPI(
     version="1.0.0",
     description=(
         "Plateforme de paiement fictive : elle encaisse les paiements par carte pour le compte de marchands "
-        "(ex. la boutique **NovaShop**).\n\n"
+        "(ex. la boutique **PokéBling**).\n\n"
         "- Authentification **marchand** par clé API (en-tête `X-API-Key`, bouton **Authorize**)\n"
         "- Paiements **idempotents** (en-tête `Idempotency-Key`)\n"
         "- Cycle de vie `PENDING → AUTHORIZED → CAPTURED → REFUNDED` (ou `DECLINED`), chaque étape est journalisée\n\n"

@@ -1,6 +1,6 @@
 """Client de la plateforme de paiement (payment-service).
 
-NovaShop y est un marchand parmi d'autres : il s'authentifie avec sa clé API et ne conserve jamais le numéro de
+PokéBling y est un marchand parmi d'autres : il s'authentifie avec sa clé API et ne conserve jamais le numéro de
 carte. Chaque paiement porte une clé d'idempotence (le numéro de commande) : rejouer la requête après un délai
 dépassé ne débite pas le client une seconde fois.
 """

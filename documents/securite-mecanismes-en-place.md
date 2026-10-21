@@ -47,20 +47,26 @@ SOPS, qui ne sont pas encore dans le dépôt.
 ## Données de carte
 
 - Numéro contrôlé par l'algorithme de Luhn, date `MM/AA`, CVC de 3 ou 4 chiffres.
-- Ni le numéro complet ni le CVC ne sont stockés, ni chez NovaShop ni sur la plateforme : seuls les
+- Ni le numéro complet ni le CVC ne sont stockés, ni chez PokéBling ni sur la plateforme : seuls les
   4 derniers chiffres et la marque. Le code ne les écrit dans aucun journal.
 - Le numéro transite en clair par `shop-service` (en mémoire) avant d'atteindre `payment-service`.
 - Démonstrateur : aucune donnée bancaire réelle ne doit être saisie, seulement les cartes de test.
 
 ## Intégrité des paiements et des stocks
 
-- **Le serveur fait foi** : prix, stocks, frais de port et totaux recalculés par `shop-service` ; le
-  navigateur n'envoie que des identifiants et des quantités.
+- **Le serveur fait foi** : prix, stocks et totaux recalculés par `shop-service` ; le navigateur n'envoie que
+  des identifiants et des quantités. Le solde de PokéDollars n'existe que côté serveur.
+- **Tirage des boosters côté serveur**, avec `secrets.SystemRandom` (imprévisible) : le navigateur ne choisit
+  ni ne peut prévoir les cartes. Les probabilités publiées par `GET /api/shop/boosters` sont celles du code.
+- **Porte-monnaie** : ligne verrouillée à chaque mouvement, solde ≥ 0 imposé par la base, journal
+  `wallet_entries` en ajout seul. Ouverture de booster idempotente (`Idempotency-Key`) : un double clic ne
+  débite qu'une fois. Une commande dont les PokéDollars ont été dépensés ne peut plus être remboursée.
 - **Idempotence** : une même `Idempotency-Key` ne débite qu'une fois ; une clé réutilisée avec un autre
   montant est refusée (409).
-- **Verrous** : `SELECT … FOR UPDATE` sur le panier, les produits et la transaction à rembourser. Pas de
+- **Verrous** : `SELECT … FOR UPDATE` sur le panier, les produits, le porte-monnaie et la transaction à
+  rembourser. Pas de
   survente, pas de double commande, pas de double remboursement.
-- **Contraintes en base** : prix et montants > 0, stock ≥ 0, quantités > 0, unicité des références.
+- **Contraintes en base** : prix et montants > 0, stock ≥ 0, solde ≥ 0, quantités > 0, unicité des références.
 - **Cycle de vie contrôlé** : toute transition d'état non prévue lève une erreur.
 - **Journal en ajout seul** : `transaction_events` n'est jamais modifié ni effacé par l'application.
 - **Compensation** : un débit sans commande enregistrée est remboursé automatiquement.

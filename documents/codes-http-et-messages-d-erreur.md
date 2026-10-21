@@ -43,12 +43,25 @@ indisponible` pour un code 5xx.
 | Route | Code | Message |
 |-------|------|---------|
 | `GET /api/shop/products/{slug}` | 404 | `Produit introuvable` |
-| `GET /api/shop/media/{slug}.svg` | 404 | `Visuel introuvable` |
+| `GET /api/shop/sets/{set_id}/cards` | 404 | `Set introuvable` |
 | `POST /api/shop/cart/items` | 404 | `Produit introuvable` |
 | `POST`, `PATCH /api/shop/cart/items…` | 409 | `Maximum 10 exemplaires par article` |
-| `POST`, `PATCH /api/shop/cart/items…` | 409 | `Stock insuffisant pour « <nom> » : plus que N disponible(s)` |
+| `POST`, `PATCH /api/shop/cart/items…` | 409 | `Stock insuffisant pour « <nom> » : plus que N exemplaire(s)` |
 | `POST`, `PATCH /api/shop/cart/items…` | 409 | `« <nom> » est en rupture de stock` |
 | `PATCH /api/shop/cart/items/{product_id}` | 404 | `Cet article n'est pas dans votre panier` |
+
+## Codes de shop-service : boosters
+
+`POST /api/shop/boosters/{slug}/open` (payé en PokéDollars, sans `payment-service`) :
+
+| Code | Message | Effet |
+|------|---------|-------|
+| 201 | Ouverture renvoyée (cartes, nouveau solde) | PokéDollars débités, cartes ajoutées à la collection |
+| 201 | Même ouverture qu'avant (même `Idempotency-Key`) | Aucun nouveau débit |
+| 404 | `Booster introuvable` | Aucun |
+| 409 | `Solde insuffisant : il vous manque N PokéDollars` | Aucun |
+| 409 | `Clé d'idempotence déjà utilisée pour un autre booster` | Aucun |
+| 422 | `Idempotency-Key` qui n'est pas un UUID | Aucun |
 
 ## Codes de shop-service : paiement d'une commande
 
@@ -56,7 +69,7 @@ indisponible` pour un code 5xx.
 
 | Code | Message | Débité ? | Commande | Panier |
 |------|---------|----------|----------|--------|
-| 201 | Commande renvoyée | oui | `PAID` | vidé |
+| 201 | Commande renvoyée ; cartes et PokéDollars livrés aussitôt | oui | `PAID` | vidé |
 | 400 | `Votre panier est vide` | non | – | – |
 | 402 | Motif de la banque, par ex. `Paiement refusé par la banque émettrice` | non | – | conservé |
 | 409 | `Stock insuffisant pour : <noms>` | non | – | conservé |
@@ -75,9 +88,11 @@ le journal de `shop-service` : `Paiement de la commande CMD-… rejeté : <code>
 
 | Code | Message | Effet |
 |------|---------|-------|
-| 200 | Commande renvoyée | Remboursée, `CANCELLED`, stock restitué |
+| 200 | Commande renvoyée | Remboursée, `CANCELLED`, cartes et PokéDollars repris, stock restitué |
 | 404 | `Commande introuvable` | Aucun |
 | 409 | `Cette commande est déjà annulée` | Aucun |
+| 409 | `Les PokéDollars de cette commande ont déjà été dépensés : elle ne peut plus être annulée` | Aucun, pas de remboursement |
+| 409 | `Certaines cartes de cette commande ne sont plus dans votre collection` | Aucun, pas de remboursement |
 | 502 | `Le remboursement n'a pas pu être effectué` | La commande reste `PAID` |
 | 503 | `Le service de paiement est momentanément indisponible, veuillez réessayer dans quelques instants` | La commande reste `PAID` |
 
@@ -147,6 +162,6 @@ Pour un 422, chaque élément de la liste `detail` devient une phrase, préfixé
 - **402** au paiement : refus de carte. La plateforme fonctionne. Visible en `DECLINED` dans `payment_db`.
 - **409** : conflit métier (stock, double annulation). La plateforme fonctionne.
 - **503** au paiement ou à l'annulation : `payment-service` injoignable ou en erreur 5xx deux fois de suite.
-- **502** au paiement : `payment-service` répond mais refuse la demande de NovaShop (souvent la clé API).
+- **502** au paiement : `payment-service` répond mais refuse la demande de PokéBling (souvent la clé API).
 - **502 HTML de nginx** : `auth-service` ou `shop-service` injoignable.
 - **500** : erreur interne, le plus souvent la base de données.

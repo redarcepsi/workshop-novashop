@@ -1,7 +1,7 @@
 # Routes de payment-service
 
 `payment-service` est la plateforme de paiement fictive, le système critique du projet. Elle encaisse les
-paiements par carte pour le compte de marchands (aujourd'hui un seul : NovaShop, code `novashop`),
+paiements par carte pour le compte de marchands (aujourd'hui un seul : PokéBling, code `novashop`),
 rembourse et journalise chaque changement d'état. API FastAPI, préfixe `/api/payment`, port interne 8000,
 base `payment_db`. Code : `services/payment-service/app/routes.py` et `transaction_service.py`.
 
@@ -26,7 +26,7 @@ Toutes les routes `/transactions` exigent l'en-tête `X-API-Key`. `payment-servi
 clé et cherche le marchand actif dont `api_key_hash` correspond. Sinon : 401 `Clé API absente ou invalide`.
 
 Un marchand ne voit que ses propres transactions : une référence appartenant à un autre marchand répond 404,
-comme une référence inexistante. La clé de NovaShop est la variable `MERCHANT_API_KEY` ; au démarrage,
+comme une référence inexistante. La clé de PokéBling est la variable `MERCHANT_API_KEY` ; au démarrage,
 `payment-service` met à jour le hash si la clé a changé (rotation par simple redémarrage).
 
 ## POST /api/payment/transactions
@@ -34,7 +34,7 @@ comme une référence inexistante. La clé de NovaShop est la variable `MERCHANT
 Autorise puis capture un paiement par carte, en une seule transaction SQL.
 
 En-têtes : `X-API-Key` (obligatoire) et `Idempotency-Key` (facultatif, 1 à 64 caractères parmi
-`A-Z a-z 0-9 _ . : -`, sinon 422). NovaShop y met son numéro de commande.
+`A-Z a-z 0-9 _ . : -`, sinon 422). PokéBling y met son numéro de commande.
 
 Corps :
 
@@ -69,7 +69,7 @@ une demande refusée avec la même clé renvoie à nouveau 402 avec `Idempotent-
 | `4000 0000 0000 9995` | Refusé (402) | `insufficient_funds` | `Paiement refusé : fonds insuffisants` |
 | Date passée | Refusé (402) | `expired_card` | `Paiement refusé : carte expirée` |
 
-Tout autre numéro valide selon Luhn avec une date future est accepté. Via NovaShop, une carte expirée est
+Tout autre numéro valide selon Luhn avec une date future est accepté. Via PokéBling, une carte expirée est
 refusée plus tôt, par la validation de `shop-service` (422 `La carte est expirée`) : le cas `expired_card`
 n'arrive que par un appel direct à `payment-service`.
 
@@ -77,7 +77,7 @@ n'arrive que par un appel direct à `payment-service`.
 
 Transactions du marchand authentifié, des plus récentes aux plus anciennes. Paramètres :
 `status` (`PENDING`, `AUTHORIZED`, `CAPTURED`, `DECLINED`, `REFUNDED`), `merchant_reference` (numéro de
-commande NovaShop), `limit` (1 à 100, défaut 20), `offset`.
+commande PokéBling), `limit` (1 à 100, défaut 20), `offset`.
 
 Réponse : `{"items": [transaction, …], "total": N, "limit": 20, "offset": 0}`.
 
@@ -94,7 +94,7 @@ journal complet. 404 : `Transaction introuvable`.
 Remboursement intégral d'une transaction capturée. La ligne est verrouillée (`SELECT … FOR UPDATE`) pendant
 l'opération.
 
-- 200 : transaction passée en `REFUNDED`, événement `Remboursement demandé par NovaShop` ajouté au journal.
+- 200 : transaction passée en `REFUNDED`, événement `Remboursement demandé par PokéBling` ajouté au journal.
 - 200 également si elle était déjà `REFUNDED` : idempotent, rien n'est refait ni journalisé.
 - 409 : `Seule une transaction capturée peut être remboursée` (par exemple une transaction `DECLINED`).
 - 404 : `Transaction introuvable`.
@@ -118,7 +118,7 @@ fonctionnement est une transaction `CAPTURED`.
 docker compose --profile tools up -d payment-console   # http://127.0.0.1:8082 → Swagger
 ```
 
-Dans Swagger : **Authorize**, coller la clé API du marchand NovaShop (valeur de `MERCHANT_API_KEY` dans
+Dans Swagger : **Authorize**, coller la clé API du marchand PokéBling (valeur de `MERCHANT_API_KEY` dans
 `.env`), puis `GET /transactions`. La console est un proxy nginx publié sur `127.0.0.1` uniquement : invisible
 depuis le réseau. Arrêt : `docker compose --profile tools stop payment-console`.
 

@@ -1,6 +1,6 @@
 // Client HTTP unique : toutes les requêtes passent par /api (passerelle nginx ou proxy Vite).
 
-const TOKEN_KEY = 'novashop_token'
+const TOKEN_KEY = 'pokebling_token'
 
 export const tokenStore = {
   get: () => localStorage.getItem(TOKEN_KEY),
@@ -41,10 +41,6 @@ const FIELD_LABELS = {
   username: 'Email',
   password: 'Mot de passe',
   full_name: 'Nom complet',
-  address: 'Adresse',
-  postal_code: 'Code postal',
-  city: 'Ville',
-  country: 'Pays',
   card_number: 'Numéro de carte',
   expiry: 'Expiration',
   cvc: 'CVC',
@@ -55,7 +51,6 @@ const FIELD_LABELS = {
 
 // Champs dont le format est contrôlé par une expression régulière : le motif brut n'a pas de sens pour le client
 const PATTERN_MESSAGES = {
-  postal_code: 'Code postal invalide',
   expiry: "Date d'expiration invalide (format MM/AA)",
   cvc: 'Le CVC doit comporter 3 ou 4 chiffres',
 }
@@ -110,8 +105,8 @@ function errorMessage(data, status) {
   return STATUS_MESSAGES[status] || `Erreur ${status}`
 }
 
-async function request(path, { method = 'GET', body, form, auth = true } = {}) {
-  const headers = {}
+async function request(path, { method = 'GET', body, form, auth = true, headers: extraHeaders = {} } = {}) {
+  const headers = { ...extraHeaders }
   const token = tokenStore.get()
   if (auth && token) headers.Authorization = `Bearer ${token}`
 
@@ -156,9 +151,15 @@ export const authApi = {
 
 export const shopApi = {
   // Catalogue (public)
-  categories: () => request('/shop/categories', { auth: false }),
+  sets: () => request('/shop/sets', { auth: false }),
+  setCards: (setId) => request(`/shop/sets/${encodeURIComponent(setId)}/cards`, { auth: false }),
   products: (params = {}) => request(`/shop/products?${query(params)}`, { auth: false }),
   product: (slug) => request(`/shop/products/${encodeURIComponent(slug)}`, { auth: false }),
+  boosters: () => request('/shop/boosters', { auth: false }),
+
+  // Boosters : la clé d'idempotence évite d'ouvrir (et de payer) deux fois sur un double clic ou une relance
+  openBooster: (slug, requestId) =>
+    request(`/shop/boosters/${encodeURIComponent(slug)}/open`, { method: 'POST', headers: { 'Idempotency-Key': requestId } }),
 
   // Panier
   quote: (items) => request('/shop/cart/quote', { method: 'POST', body: { items }, auth: false }),
@@ -175,4 +176,8 @@ export const shopApi = {
   orders: () => request('/shop/orders'),
   order: (id) => request(`/shop/orders/${id}`),
   cancelOrder: (id) => request(`/shop/orders/${id}/cancel`, { method: 'POST' }),
+
+  // Compte
+  wallet: () => request('/shop/wallet'),
+  collection: () => request('/shop/collection'),
 }

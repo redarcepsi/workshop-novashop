@@ -8,11 +8,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://payment_user:payment_password@postgres:5432/payment_db"
 
-    # Marchand de démonstration (la boutique NovaShop), créé ou mis à jour au démarrage.
-    # La configuration fait foi : changer MERCHANT_API_KEY puis redémarrer suffit à faire tourner la clé.
+    # Marchand de démonstration (la boutique PokéBling, ex-NovaShop : son code reste "novashop"), créé ou mis à jour
+    # au démarrage. La configuration fait foi : changer MERCHANT_API_KEY puis redémarrer suffit à faire tourner la clé.
     seed_merchant: bool = True
     merchant_code: str = "novashop"
-    merchant_name: str = "NovaShop"
+    merchant_name: str = "PokéBling"
     merchant_api_key: str = "sk_test_novashop_dev_only_change_me"
 
 

@@ -1,11 +1,13 @@
+# Nom du projet conservé depuis la boutique NovaShop (devenue PokéBling) : il préfixe les volumes (novashop_pgdata…)
+# et le réseau novashop_monitoring-edge sur lequel se branche la supervision. Le changer les recréerait à vide.
 name: novashop
 
 # ---------------------------------------------------------------------------
-# Plateforme de paiement fictive et sa boutique marchande de démonstration, NovaShop
+# Plateforme de paiement fictive et sa boutique marchande de démonstration, PokéBling (cartes Pokémon)
 #
 #   frontend (nginx)  ── SPA React + passerelle /api/*            SEUL service publié (port 8080)
-#   auth-service      ── comptes clients NovaShop, JWT
-#   shop-service      ── NovaShop (marchand) : catalogue, panier, commandes
+#   auth-service      ── comptes clients PokéBling, JWT
+#   shop-service      ── PokéBling (marchand) : cartes, boosters, PokéDollars, panier, commandes, collection
 #   payment-service   ── plateforme de paiement : transactions, remboursements, journal
 #   postgres          ── une instance, une base + un rôle par service
 #
@@ -72,8 +74,6 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-production-0123456789}
       PAYMENT_SERVICE_URL: http://payment-service:8000
       PAYMENT_API_KEY: ${MERCHANT_API_KEY:-sk_test_novashop_dev_only_change_me}
-      FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-50.00}
-      SHIPPING_COST: ${SHIPPING_COST:-4.90}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
     # Volontairement pas de dépendance sur payment-service : si le paiement tombe, la boutique
     # reste consultable (mode dégradé) et le paiement répond 503 sans rien débiter.
@@ -90,7 +90,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://payment_user:${PAYMENT_DB_PASSWORD:-payment_password}@postgres:5432/payment_db
-      # Clé API du marchand NovaShop : seul son hash SHA-256 est stocké en base
+      # Clé API du marchand PokéBling (code novashop) : seul son hash SHA-256 est stocké en base
       MERCHANT_API_KEY: ${MERCHANT_API_KEY:-sk_test_novashop_dev_only_change_me}
     depends_on:
       postgres:

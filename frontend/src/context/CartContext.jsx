@@ -9,17 +9,15 @@ import { useAuth } from './AuthContext.jsx'
  * À la connexion, le panier invité est fusionné dans celui du compte (POST /cart/merge).
  */
 
-const GUEST_KEY = 'novashop_guest_cart'
+const GUEST_KEY = 'pokebling_guest_cart'
 const MAX_QTY = 10
 
 export const EMPTY_CART = {
   items: [],
   items_count: 0,
-  subtotal: '0.00',
-  shipping_cost: '0.00',
   total: '0.00',
-  free_shipping_threshold: '50.00',
-  free_shipping_remaining: '50.00',
+  pokedollars: 0,
+  cards_count: 0,
 }
 
 const guestStore = {
@@ -47,11 +45,12 @@ async function saveGuest(items) {
   return quoted
 }
 
+// stock null : illimité (lots de PokéDollars)
 function stockError(product, wanted) {
   if (wanted > MAX_QTY) return `Maximum ${MAX_QTY} exemplaires par article`
-  if (wanted > product.stock) {
+  if (product.stock != null && wanted > product.stock) {
     return product.stock
-      ? `Stock insuffisant : plus que ${product.stock} disponible(s)`
+      ? `Stock insuffisant : plus que ${product.stock} exemplaire(s)`
       : `« ${product.name} » est en rupture de stock`
   }
   return null

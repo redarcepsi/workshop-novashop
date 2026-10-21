@@ -31,7 +31,7 @@ docker compose --profile monitoring up -d     # avec LOKI_URL et METRICS_TOKEN r
 |-----------|------|
 | `metrics-gateway` | nginx, joint par Prometheus sur le réseau `monitoring-edge` (`metrics-gateway:80`) et publié sur `127.0.0.1:9464` seulement (`METRICS_BIND`) : relaie la route `/metrics` de chaque service, seulement avec le jeton `METRICS_TOKEN` |
 | `nginx-exporter` | Lit les compteurs de nginx (`stub_status`, port 8081 du frontend, non publié) et les convertit au format Prometheus |
-| `log-shipper` | Grafana Alloy : envoie les journaux de tous les conteneurs NovaShop au Loki de la supervision (`LOKI_URL`) |
+| `log-shipper` | Grafana Alloy : envoie les journaux de tous les conteneurs PokéBling au Loki de la supervision (`LOKI_URL`) |
 | `docker-socket-proxy` | Donne à `log-shipper` un accès en lecture seule à l'API Docker (conteneurs, réseaux, journaux) |
 
 Configuration de la supervision :
@@ -95,6 +95,8 @@ Chaque API expose `/metrics` hors de son préfixe `/api/<service>` : la passerel
 | `payment_amount_total` | `payment-service` | `merchant`, `status`, `currency` | Montant cumulé par statut, en euros |
 | `shop_payment_service_errors_total` | `shop-service` | `reason` | Appels à `payment-service` en échec, nouvelles tentatives comprises : `timeout` (trop lent), `unreachable` (arrêté, injoignable), `server_error` (réponse 5xx) |
 | `shop_order_compensations_total` | `shop-service` | `outcome` | Commandes non enregistrées après un paiement accepté : `refunded` (client remboursé) ou `failed` (débit à régulariser) |
+| `shop_pokedollars_total` | `shop-service` | `movement` | PokéDollars `credited` (achetés), `spent` (boosters) ou `revoked` (repris à l'annulation d'une commande) |
+| `shop_boosters_opened_total` | `shop-service` | `booster` | Boosters ouverts, par slug (`set-de-base`, `151`, `legendaire`…) |
 | `rag_answer_duration_seconds` | `rag-service` | – | Durée de génération des réponses de l'assistant, réflexion comprise |
 | `rag_failures_total` | `rag-service` | `stage` | Questions sans réponse complète : `search` (recherche documentaire) ou `generation` (modèle local) |
 | `nginx_connections_active`, `nginx_http_requests_total` | `frontend` | – | Connexions ouvertes et requêtes traitées par nginx |
@@ -234,7 +236,7 @@ INFO:payment-service:transaction reference=PAY_8FA8A393135D82FF merchant=novasho
 |-------|---------|
 | `reference` | Référence publique `PAY_…` |
 | `merchant` | Code du marchand (`novashop`) |
-| `merchant_reference` | Numéro de commande NovaShop `CMD-…` |
+| `merchant_reference` | Numéro de commande PokéBling `CMD-…` |
 | `status` | `CAPTURED`, `DECLINED` ou `REFUNDED` |
 | `amount`, `currency` | Montant et devise (`EUR`) |
 | `decline_code` | `card_declined`, `insufficient_funds`, `expired_card`, ou `-` |
@@ -256,7 +258,7 @@ Autres messages : `Marchand de démo novashop : créé` / `clé API renouvelée`
 | ERROR | `Commande CMD-… non enregistrée après le paiement PAY_… : remboursement` | Compensation lancée |
 | ERROR | `Remboursement de compensation impossible pour PAY_… : à régulariser` | Débit sans commande |
 
-Au démarrage : `Catalogue de démonstration inséré : 21 produits`, `Base indisponible (tentative N/15)…`.
+Au démarrage : `Catalogue PokéBling inséré : 609 cartes, 4 lots de PokéDollars, 6 boosters`, `Tables de l'ancienne boutique NovaShop détectées : …` (une fois, au passage à PokéBling), `Booster ouvert : user=… booster=… cartes=…`, `Base indisponible (tentative N/15)…`.
 
 ## Journaux d'auth-service
 
@@ -324,7 +326,7 @@ docker compose exec postgres psql -U postgres -d shop_db -c "SELECT slug, stock 
 docker compose exec postgres psql -U postgres -d shop_db -c "SELECT number, payment_reference, status, created_at FROM orders ORDER BY created_at DESC LIMIT 10;"
 ```
 
-## Rapprochement entre NovaShop et la plateforme de paiement
+## Rapprochement entre PokéBling et la plateforme de paiement
 
 Les deux bases sont séparées : pas de jointure possible en une requête. On compare deux listes :
 

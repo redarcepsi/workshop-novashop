@@ -15,7 +15,7 @@ _CONFLICT = {409: {"description": "Stock insuffisant ou quantité maximale attei
 
 @router.get("", response_model=CartOut, summary="Mon panier", responses=_UNAUTHORIZED)
 def get_cart(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Contenu du panier avec sous-total, frais de port et total calculés côté serveur."""
+    """Contenu du panier, total et PokéDollars à recevoir, calculés côté serveur."""
     return cart_service.get_cart(db, user.id)
 
 

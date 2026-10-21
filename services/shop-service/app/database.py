@@ -1,7 +1,7 @@
 import logging
 import time
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -25,12 +25,28 @@ def get_db():
         db.close()
 
 
+def _drop_legacy_schema() -> None:
+    """Supprime les tables de l'ancienne boutique NovaShop (body pillows), que create_all ne sait pas transformer.
+
+    Elles se reconnaissent à la table products sans colonne kind. Les transactions de payment-service ne sont pas
+    touchées : elles sont dans une autre base.
+    """
+    inspector = inspect(engine)
+    if not inspector.has_table("products") or "kind" in {c["name"] for c in inspector.get_columns("products")}:
+        return
+    logger.warning("Tables de l'ancienne boutique NovaShop détectées : suppression avant la création de PokéBling")
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS order_items, orders, cart_items, products, categories CASCADE"))
+        conn.execute(text("DROP TYPE IF EXISTS order_status"))
+
+
 def init_db(retries: int = 15, delay: float = 2.0) -> None:
     """Crée les tables (pour un vrai projet : migrations Alembic) puis le catalogue de démo."""
     from . import models  # noqa: F401  (enregistre les modèles sur Base.metadata)
 
     for attempt in range(1, retries + 1):
         try:
+            _drop_legacy_schema()
             Base.metadata.create_all(bind=engine)
             break
         except OperationalError:

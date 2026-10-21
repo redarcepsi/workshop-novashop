@@ -1,6 +1,6 @@
 # Pages du site et passerelle nginx
 
-Le conteneur `frontend` joue deux rôles : il sert la SPA React de NovaShop et il est la **passerelle API**
+Le conteneur `frontend` joue deux rôles : il sert la SPA React de PokéBling et il est la **passerelle API**
 (reverse proxy) vers `auth-service` et `shop-service`. C'est le seul point d'entrée publié de la plateforme
 (port 8080). Code : `frontend/nginx.conf`, `frontend/src/App.jsx`, `frontend/src/api.js`.
 
@@ -32,26 +32,32 @@ nginx ajoute `X-Real-IP`, `X-Forwarded-For` et `X-Forwarded-Proto` ; les service
 - Route d'API inconnue sous `/api/auth/` ou `/api/shop/` : 404 JSON `{"detail": "Not Found"}` renvoyé par
   le service.
 
-## Pages de la SPA NovaShop
+## Pages de la SPA PokéBling
 
 | Route | Page | Connexion | Appels d'API |
 |-------|------|-----------|--------------|
-| `/` | Accueil | – | `GET /api/shop/categories`, `GET /api/shop/products` |
-| `/products` | Catalogue filtrable | – | `GET /api/shop/categories`, `GET /api/shop/products?…` |
-| `/products/:slug` | Fiche produit | – | `GET /api/shop/products/{slug}`, produits de la même catégorie |
+| `/` | Accueil | – | `GET /api/shop/products`, `GET /api/shop/boosters`, `GET /api/shop/sets` |
+| `/cards` | Cartes à l'unité, filtrables (set, rareté, type) | – | `GET /api/shop/sets`, `GET /api/shop/products?kind=CARD&…` |
+| `/cards/:slug` | Fiche d'une carte | – | `GET /api/shop/products/{slug}`, la même carte dans d'autres sets ; connecté : `GET /api/shop/collection` |
+| `/boosters` | Boosters et ouverture | ouverture : oui | `GET /api/shop/boosters`, `POST /api/shop/boosters/{slug}/open` |
+| `/pokedollars` | Lots de PokéDollars, solde et historique | – | `GET /api/shop/products?kind=POKEDOLLARS` ; connecté : `GET /api/shop/wallet` |
+| `/collection` | Collection, avancement par set | oui | `GET /api/shop/collection`, `GET /api/shop/sets/{id}/cards` |
 | `/cart` | Panier | – | Panier invité : `POST /api/shop/cart/quote` ; connecté : routes `/api/shop/cart…` |
-| `/checkout` | Adresse et paiement | oui | `POST /api/shop/orders` |
+| `/checkout` | Paiement par carte | oui | `POST /api/shop/orders` |
 | `/orders` | Historique | oui | `GET /api/shop/orders` |
 | `/orders/:id` | Détail, annulation | oui | `GET /api/shop/orders/{id}`, `POST /api/shop/orders/{id}/cancel` |
 | `/login` | Connexion | – | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/shop/cart/merge` |
 | `/register` | Inscription | – | `POST /api/auth/register`, puis connexion |
 
-Toute autre route redirige vers `/`. Les pages marquées « oui » renvoient vers `/login` sans session.
+Les anciennes adresses `/products…` redirigent vers `/cards`, toute autre route vers `/`. En-tête : solde de
+PokéDollars de l'utilisateur connecté (`GET /api/shop/wallet`), rechargé après un paiement ou une ouverture. Les pages marquées « oui » renvoient vers `/login` sans session.
 
 ## Session et stockage dans le navigateur
 
-- Jeton JWT : `localStorage`, clé `novashop_token`. Envoyé dans `Authorization: Bearer` à chaque appel.
-- Panier invité : `localStorage`, clé `novashop_guest_cart`, lignes `{product_id, quantity}`.
+- Jeton JWT : `localStorage`, clé `pokebling_token`. Envoyé dans `Authorization: Bearer` à chaque appel.
+- Panier invité : `localStorage`, clé `pokebling_guest_cart`, lignes `{product_id, quantity}`.
+- Images des cartes et logos des sets : chargés par le navigateur depuis `https://assets.tcgdex.net` (TCGdex),
+  pas par nginx. Sans accès à Internet, une carte de secours dessinée en CSS s'affiche à la place.
 - Au chargement d'une page avec un jeton : `GET /api/auth/me`. En cas d'échec (jeton expiré, auth-service
   indisponible), le jeton est effacé et l'utilisateur déconnecté.
 - Toute réponse 401 d'une route authentifiée déconnecte aussi l'utilisateur.

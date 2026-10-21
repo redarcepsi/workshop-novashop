@@ -1,47 +1,33 @@
 import { formatMoney, plural } from '../utils/format.js'
 import Icon from './Icon.jsx'
+import { PD } from './ui.jsx'
 
-/** Récapitulatif des montants du panier (calculés par le serveur). */
+/** Récapitulatif du panier (montants calculés par le serveur) et de ce qui sera livré au paiement. */
 export default function CartSummary({ cart, children }) {
-  const remaining = Number(cart.free_shipping_remaining)
-  const threshold = Number(cart.free_shipping_threshold)
-  const progress = Math.min(100, (Number(cart.subtotal) / threshold) * 100)
-
   return (
     <div className="space-y-5">
-      <div className="rounded-xl bg-slate-50 p-4">
-        {remaining > 0 ? (
-          <>
-            <p className="flex items-center gap-2 text-sm text-slate-700">
-              <Icon name="truck" className="h-5 w-5 text-brand-600" />
-              Plus que <strong className="tabular-nums">{formatMoney(remaining)}</strong> pour la livraison offerte
-            </p>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${progress}%` }} />
-            </div>
-          </>
-        ) : (
-          <p className="flex items-center gap-2 text-sm font-medium text-emerald-700">
-            <Icon name="truck" className="h-5 w-5" />
-            Livraison offerte 🎉
+      <div className="space-y-2 rounded-xl bg-white/5 p-4 text-sm ring-1 ring-white/10">
+        <p className="flex items-center gap-2 font-medium text-night-100">
+          <Icon name="bolt" className="h-5 w-5 text-gold-300" /> Livraison instantanée, 100 % numérique
+        </p>
+        {cart.cards_count > 0 && (
+          <p className="pl-7 text-night-300">{plural(cart.cards_count, 'carte ajoutée', 'cartes ajoutées')} à votre collection</p>
+        )}
+        {cart.pokedollars > 0 && (
+          <p className="pl-7 text-night-300">
+            <PD amount={cart.pokedollars} className="text-gold-200" /> crédités sur votre porte-monnaie
           </p>
         )}
       </div>
 
       <dl className="space-y-3 text-sm">
         <div className="flex justify-between">
-          <dt className="text-slate-600">Sous-total ({plural(cart.items_count, 'article')})</dt>
-          <dd className="font-medium tabular-nums text-slate-900">{formatMoney(cart.subtotal)}</dd>
+          <dt className="text-night-300">Articles</dt>
+          <dd className="font-medium tabular-nums text-white">{cart.items_count}</dd>
         </div>
-        <div className="flex justify-between">
-          <dt className="text-slate-600">Livraison</dt>
-          <dd className="font-medium tabular-nums text-slate-900">
-            {Number(cart.shipping_cost) === 0 ? <span className="text-emerald-600">Offerte</span> : formatMoney(cart.shipping_cost)}
-          </dd>
-        </div>
-        <div className="flex justify-between border-t border-slate-200 pt-3 text-base">
-          <dt className="font-semibold text-slate-900">Total TTC</dt>
-          <dd className="font-bold tabular-nums text-slate-900">{formatMoney(cart.total)}</dd>
+        <div className="flex justify-between border-t border-white/10 pt-3 text-base">
+          <dt className="font-semibold text-white">Total TTC</dt>
+          <dd className="font-bold tabular-nums text-white">{formatMoney(cart.total)}</dd>
         </div>
       </dl>
 

@@ -1,6 +1,6 @@
-# Processus du panier NovaShop
+# Processus du panier PokéBling
 
-Le panier de NovaShop est **hybride** : chez un visiteur non connecté, il vit dans le navigateur ; chez un
+Le panier de PokéBling est **hybride** : chez un visiteur non connecté, il vit dans le navigateur ; chez un
 client connecté, il est stocké par `shop-service` dans `shop_db`. Les deux sont fusionnés à la connexion.
 Code : `frontend/src/context/CartContext.jsx`, `services/shop-service/app/cart_service.py`.
 
@@ -8,7 +8,7 @@ Code : `frontend/src/context/CartContext.jsx`, `services/shop-service/app/cart_s
 
 ```mermaid
 flowchart TD
-    V[Visiteur non connecté] -->|ajout| LS["localStorage<br/>novashop_guest_cart"]
+    V[Visiteur non connecté] -->|ajout| LS["localStorage<br/>pokebling_guest_cart"]
     LS -->|"POST /api/shop/cart/quote"| Q["shop-service chiffre<br/>prix, stock, totaux"]
     V -->|connexion| M["POST /api/shop/cart/merge"]
     LS --> M
@@ -19,17 +19,17 @@ flowchart TD
 
 ## Panier d'un visiteur non connecté
 
-1. À chaque ajout, le front lit `novashop_guest_cart` dans `localStorage` (lignes `{product_id, quantity}`).
+1. À chaque ajout, le front lit `pokebling_guest_cart` dans `localStorage` (lignes `{product_id, quantity}`).
 2. Il vérifie localement le plafond de 10 exemplaires et le stock connu de la fiche produit.
-3. Il appelle `POST /api/shop/cart/quote` avec les lignes : `shop-service` renvoie prix, stocks, sous-total,
-   frais de port et total réels. Rien n'est écrit en base.
+3. Il appelle `POST /api/shop/cart/quote` avec les lignes : `shop-service` renvoie prix, stocks et total
+   réels, et ce qui sera livré (PokéDollars, nombre de cartes). Rien n'est écrit en base.
 4. Le front enregistre les nouvelles lignes dans `localStorage` et affiche le panier chiffré.
 
 Le navigateur ne fournit jamais de prix : seuls l'identifiant du produit et la quantité sortent du poste.
 
 ## Fusion du panier invité à la connexion
 
-1. Après la connexion, si `novashop_guest_cart` n'est pas vide, le front le vide aussitôt et envoie son
+1. Après la connexion, si `pokebling_guest_cart` n'est pas vide, le front le vide aussitôt et envoie son
    contenu à `POST /api/shop/cart/merge`.
 2. Pour chaque produit, `shop-service` fixe la quantité à
    `min(quantité déjà au panier + quantité invitée, stock, 10)`.
@@ -51,10 +51,11 @@ panier complet recalculé.
 - **Stock** : une quantité supérieure au stock est refusée à l'ajout ou à la modification (409). Si le stock
   baisse après coup, la ligne reste dans le panier avec `available: false` et bloque le paiement.
 - **Ligne** : `line_total = prix × quantité`, arrondi au centime.
-- **Livraison** : `SHIPPING_COST` (4,90 €) si le sous-total est inférieur à `FREE_SHIPPING_THRESHOLD`
-  (50 €), sinon offerte. Panier vide : 0 €.
-- **Total** : sous-total + livraison. `free_shipping_remaining` indique ce qu'il manque pour la livraison
-  offerte.
+- **Articles** : cartes à l'unité (`kind = CARD`, stock limité) et lots de PokéDollars (`kind = POKEDOLLARS`,
+  stock `null` = illimité, jamais en rupture). Les boosters ne passent pas par le panier : ils se paient en
+  PokéDollars, à l'ouverture.
+- **Total** : somme des lignes. Pas de frais de port, tout est numérique. `pokedollars` et `cards_count`
+  indiquent ce qui sera livré au paiement.
 
 ## Le panier pendant le paiement
 

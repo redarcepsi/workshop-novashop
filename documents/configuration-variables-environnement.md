@@ -54,9 +54,7 @@ prochaine requête.
 
 | Variable | Défaut | Services | Rôle |
 |----------|--------|----------|------|
-| `MERCHANT_API_KEY` | valeur de développement (`sk_test_…`) | payment-service, shop-service | Secret : clé API du marchand NovaShop |
-| `FREE_SHIPPING_THRESHOLD` | `50.00` | shop-service | Sous-total à partir duquel la livraison est offerte |
-| `SHIPPING_COST` | `4.90` | shop-service | Frais de livraison sous le seuil |
+| `MERCHANT_API_KEY` | valeur de développement (`sk_test_…`) | payment-service, shop-service | Secret : clé API du marchand PokéBling |
 
 `MERCHANT_API_KEY` alimente deux variables : `MERCHANT_API_KEY` dans `payment-service` (dont il stocke le
 hash) et `PAYMENT_API_KEY` dans `shop-service` (qu'il envoie dans `X-API-Key`). `PAYMENT_SERVICE_URL` est fixé
@@ -110,7 +108,7 @@ d'environnement du même nom, à condition de l'ajouter au service dans `docker-
 | shop-service | `SEED_CATALOG` | `true` | Insertion du catalogue de démo |
 | auth-service | `BCRYPT_ROUNDS` | `12` | Coût du hachage des mots de passe |
 | auth-service, shop-service | `JWT_ALGORITHM`, `JWT_ISSUER` | `HS256`, `novashop-auth` | Format des jetons |
-| payment-service | `SEED_MERCHANT`, `MERCHANT_CODE`, `MERCHANT_NAME` | `true`, `novashop`, `NovaShop` | Marchand de démo |
+| payment-service | `SEED_MERCHANT`, `MERCHANT_CODE`, `MERCHANT_NAME` | `true`, `novashop`, `PokéBling` | Marchand de démo (le nom est mis à jour au démarrage) |
 | rag-service | `LLM_TEMPERATURE`, `LLM_NUM_CTX` | `0.2`, `8192` | Génération |
 | rag-service | `CHUNK_SIZE`, `CHUNK_OVERLAP`, `RETRIEVAL_K` | `1000`, `150`, `3` | Découpage et nombre d'extraits |
 | rag-service | `SYNC_INTERVAL_SECONDS` | `30` | Fréquence de scrutation de `documents/` |

@@ -8,38 +8,33 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import CartItem, Product
+from .models import CartItem, Product, ProductKind
 from .schemas import CartItemIn
 
 CENT = Decimal("0.01")
 
 
-def shipping_cost_for(subtotal: Decimal) -> Decimal:
-    if subtotal == 0 or subtotal >= settings.free_shipping_threshold:
-        return Decimal("0.00")
-    return settings.shipping_cost
+def has_stock(product: Product, quantity: int) -> bool:
+    return product.stock is None or product.stock >= quantity
 
 
 def build_cart(lines: list[tuple[Product, int]]) -> dict:
     """Calcule les totaux d'un panier à partir de (produit, quantité)."""
     items = []
-    subtotal = Decimal("0.00")
+    total = Decimal("0.00")
     for product, quantity in lines:
         line_total = (product.price * quantity).quantize(CENT)
-        subtotal += line_total
+        total += line_total
         items.append(
-            {"product": product, "quantity": quantity, "line_total": line_total, "available": product.stock >= quantity}
+            {"product": product, "quantity": quantity, "line_total": line_total, "available": has_stock(product, quantity)}
         )
 
-    shipping = shipping_cost_for(subtotal)
     return {
         "items": items,
         "items_count": sum(q for _, q in lines),
-        "subtotal": subtotal,
-        "shipping_cost": shipping,
-        "total": subtotal + shipping,
-        "free_shipping_threshold": settings.free_shipping_threshold,
-        "free_shipping_remaining": max(Decimal("0.00"), settings.free_shipping_threshold - subtotal),
+        "total": total,
+        "pokedollars": sum(p.pokedollars * q for p, q in lines if p.kind == ProductKind.POKEDOLLARS),
+        "cards_count": sum(q for p, q in lines if p.kind == ProductKind.CARD),
     }
 
 
@@ -59,9 +54,9 @@ def _check_quantity(product: Product, quantity: int) -> None:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"Maximum {settings.max_quantity_per_item} exemplaires par article"
         )
-    if quantity > product.stock:
+    if not has_stock(product, quantity):
         detail = (
-            f"Stock insuffisant pour « {product.name} » : plus que {product.stock} disponible(s)"
+            f"Stock insuffisant pour « {product.name} » : plus que {product.stock} exemplaire(s)"
             if product.stock
             else f"« {product.name} » est en rupture de stock"
         )
@@ -116,7 +111,9 @@ def merge(db: Session, user_id: uuid.UUID, items: list[CartItemIn]) -> dict:
         if product is None or product.stock == 0:
             continue
         line = _get_line(db, user_id, item.product_id)
-        quantity = min((line.quantity if line else 0) + item.quantity, product.stock, settings.max_quantity_per_item)
+        quantity = min((line.quantity if line else 0) + item.quantity, settings.max_quantity_per_item)
+        if product.stock is not None:
+            quantity = min(quantity, product.stock)
         if line:
             line.quantity = quantity
         else:

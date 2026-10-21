@@ -3,11 +3,15 @@
 Les produits concernés sont verrouillés (SELECT ... FOR UPDATE, toujours triés par id pour éviter
 les interblocages) : deux clients ne peuvent pas acheter le dernier exemplaire en même temps.
 Le paiement et le remboursement sont délégués à la plateforme de paiement (voir payment.py).
+
+Tout est numérique : au paiement, les cartes rejoignent la collection et les PokéDollars le porte-monnaie, dans la
+même transaction que la commande. L'annulation les reprend, et n'est possible que s'ils n'ont pas été dépensés.
 """
 
 import logging
 import secrets
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -15,10 +19,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import payment
-from .cart_service import CENT, shipping_cost_for
-from .metrics import ORDER_COMPENSATIONS
-from .models import CartItem, Order, OrderItem, OrderStatus, Product
+from . import collection_service, payment, wallet_service
+from .cart_service import CENT, has_stock
+from .metrics import ORDER_COMPENSATIONS, POKEDOLLARS
+from .models import CartItem, Order, OrderItem, OrderStatus, Product, ProductKind, WalletReason
 from .schemas import CheckoutRequest
 from .security import CurrentUser
 
@@ -40,6 +44,10 @@ def _order_number() -> str:
     return f"CMD-{datetime.now(timezone.utc):%y%m%d}-{secrets.token_hex(3).upper()}"
 
 
+def _card_counts(order: Order) -> Counter:
+    return Counter({item.card_id: item.quantity for item in order.items if item.kind == ProductKind.CARD})
+
+
 def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
     # Verrouille les lignes du panier : un double clic sur "Payer" ne crée pas deux commandes
     lines = db.scalars(
@@ -52,33 +60,35 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Votre panier est vide")
 
     products = _lock_products(db, [line.product_id for line in lines])
-    unavailable = [products[line.product_id].name for line in lines if products[line.product_id].stock < line.quantity]
+    unavailable = [products[line.product_id].name for line in lines if not has_stock(products[line.product_id], line.quantity)]
     if unavailable:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f"Stock insuffisant pour : {', '.join(unavailable)}")
 
     order_items = []
-    subtotal = Decimal("0.00")
+    total = Decimal("0.00")
+    pokedollars = 0
     for line in lines:
         product = products[line.product_id]
         line_total = (product.price * line.quantity).quantize(CENT)
-        subtotal += line_total
+        total += line_total
+        if product.kind == ProductKind.POKEDOLLARS:
+            pokedollars += product.pokedollars * line.quantity
         order_items.append(
             OrderItem(
                 product_id=product.id,
                 product_slug=product.slug,
                 product_name=product.name,
-                emoji=product.emoji,
-                color=product.color,
-                image_url=product.image_url,
+                kind=product.kind,
+                card_id=product.card_id,
+                pokedollars=product.pokedollars,
+                image_url=product.card.image_url if product.card else None,
                 unit_price=product.price,
                 quantity=line.quantity,
                 line_total=line_total,
             )
         )
 
-    shipping = shipping_cost_for(subtotal)
-    total = subtotal + shipping
     number = _order_number()
 
     try:
@@ -87,20 +97,13 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         db.rollback()
         raise
 
-    shipping_info = payload.shipping
     order = Order(
         number=number,
         user_id=user.id,
         customer_email=user.email,
         status=OrderStatus.PAID,
-        subtotal=subtotal,
-        shipping_cost=shipping,
         total=total,
-        shipping_name=shipping_info.full_name,
-        shipping_address=shipping_info.address,
-        shipping_postal_code=shipping_info.postal_code,
-        shipping_city=shipping_info.city,
-        shipping_country=shipping_info.country,
+        pokedollars=pokedollars,
         card_last4=paid.card_last4,
         payment_reference=paid.reference,
         items=order_items,
@@ -108,8 +111,16 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
     db.add(order)
 
     for line in lines:
-        products[line.product_id].stock -= line.quantity
+        product = products[line.product_id]
+        if product.stock is not None:
+            product.stock -= line.quantity
         db.delete(line)
+
+    # Livraison immédiate : PokéDollars sur le porte-monnaie, cartes dans la collection
+    if pokedollars:
+        wallet = wallet_service.lock(db, user.id)
+        wallet_service.credit(db, wallet, pokedollars, WalletReason.PURCHASE, reference=number, label=f"Commande {number}")
+    collection_service.add(db, user.id, _card_counts(order))
 
     try:
         db.commit()
@@ -125,6 +136,8 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         else:
             ORDER_COMPENSATIONS.labels("refunded").inc()
         raise
+    if pokedollars:
+        POKEDOLLARS.labels("credited").inc(pokedollars)
     return order
 
 
@@ -143,21 +156,48 @@ def cancel(db: Session, user_id: uuid.UUID, order_id: uuid.UUID) -> Order:
     if order.status != OrderStatus.PAID:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette commande est déjà annulée")
 
-    # Remboursement d'abord : s'il échoue, la commande reste payée et l'annulation peut être retentée
+    # Vérifie d'abord que tout ce qui a été livré peut être repris : sinon, pas de remboursement
+    wallet = None
+    if order.pokedollars:
+        wallet = wallet_service.lock(db, user_id)
+        if wallet.balance < order.pokedollars:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Les PokéDollars de cette commande ont déjà été dépensés : elle ne peut plus être annulée",
+            )
+    cards = _card_counts(order)
+    try:
+        owned = collection_service.lock_for_removal(db, user_id, cards)
+    except HTTPException:
+        db.rollback()
+        raise
+
+    # Remboursement ensuite : s'il échoue, la commande reste payée et l'annulation peut être retentée
     try:
         payment.refund(order.payment_reference)
     except HTTPException:
         db.rollback()
         raise
 
+    if wallet is not None:
+        wallet_service.debit(
+            db, wallet, order.pokedollars, WalletReason.REFUND, reference=order.number,
+            label=f"Annulation de la commande {order.number}",
+        )
+    collection_service.remove(db, owned, cards)
+
     # Remise en stock (les produits supprimés du catalogue entre-temps sont ignorés)
     product_ids = [item.product_id for item in order.items if item.product_id is not None]
     products = _lock_products(db, product_ids)
     for item in order.items:
-        if item.product_id in products:
-            products[item.product_id].stock += item.quantity
+        product = products.get(item.product_id)
+        if product is not None and product.stock is not None:
+            product.stock += item.quantity
 
     order.status = OrderStatus.CANCELLED
     order.cancelled_at = datetime.now(timezone.utc)
     db.commit()
+    if order.pokedollars:
+        POKEDOLLARS.labels("revoked").inc(order.pokedollars)
     return order

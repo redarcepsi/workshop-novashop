@@ -1,7 +1,7 @@
 # Architecture générale de la plateforme
 
 Description de la stack RESILIENCE-ALPHA telle qu'elle existe dans le dépôt au 21/10/2026 : la plateforme
-de paiement fictive `payment-service`, la boutique marchande NovaShop, l'assistant documentaire des
+de paiement fictive `payment-service`, la boutique marchande PokéBling, l'assistant documentaire des
 opérateurs et ce qui alimente la supervision. Sources : `docker-compose.yml`, `services/*/app/`, `frontend/`,
 `monitoring/`.
 
@@ -14,13 +14,15 @@ de la VM (`HTTP_BIND`), le jour J son adresse sur le point d'accès du consortiu
 
 ## Vue d'ensemble
 
-Le projet Docker Compose s'appelle `novashop`. Il regroupe quatre ensembles :
+Le projet Docker Compose s'appelle `novashop` (nom gardé de l'ancienne boutique : il préfixe les volumes et
+le réseau `novashop_monitoring-edge`). Il regroupe quatre ensembles :
 
 - **La plateforme de paiement** (`payment-service`) : le système critique. Elle encaisse les paiements par
   carte pour le compte de marchands, rembourse, et journalise chaque changement d'état. C'est elle qui est
   attaquée, surveillée et rétablie. La preuve de reprise est une nouvelle transaction au statut `CAPTURED`.
-- **Le marchand NovaShop** : `frontend` (nginx + React), `auth-service` (comptes clients) et `shop-service`
-  (catalogue, panier, commandes). Il produit des transactions réelles de bout en bout.
+- **Le marchand PokéBling** (anciennement NovaShop) : `frontend` (nginx + React), `auth-service` (comptes
+  clients) et `shop-service` (cartes Pokémon à l'unité, PokéDollars, boosters, panier, commandes, collection).
+  Il produit des transactions réelles de bout en bout.
 - **L'assistant des opérateurs** (profil `ai`) : `ollama`, `ollama-models`, `rag-service`, `assistant-ui`.
 - **L'alimentation de la supervision** (profil `monitoring`) : `metrics-gateway`, `nginx-exporter`,
   `log-shipper`, `docker-socket-proxy`. Ils fournissent métriques et journaux à Prometheus et Loki.
@@ -34,7 +36,7 @@ des outils d'exploration optionnels.
 flowchart LR
     U[Navigateur] -->|":8080"| F["frontend<br/>nginx + SPA React"]
     F -->|"/api/auth/*"| A[auth-service]
-    F -->|"/api/shop/*"| S["shop-service<br/>NovaShop"]
+    F -->|"/api/shop/*"| S["shop-service<br/>PokéBling"]
     S -->|"X-API-Key + Idempotency-Key"| P["payment-service<br/>plateforme de paiement"]
     A --> DB[("postgres 16")]
     S --> DB
@@ -59,15 +61,16 @@ n'y est volontairement pas routé. Pas de healthcheck défini. Configuration : `
 
 ### auth-service
 
-API FastAPI (Python 3.12), préfixe `/api/auth`, port interne 8000. Gère les comptes clients de NovaShop :
+API FastAPI (Python 3.12), préfixe `/api/auth`, port interne 8000. Gère les comptes clients de PokéBling :
 inscription, connexion, profil. Hache les mots de passe avec bcrypt (12 tours) et signe des jetons JWT HS256
 valables 60 minutes. Base `auth_db`, rôle `auth_user`. Crée au démarrage les comptes de démonstration
 `leo@novashop.fr` et `ines@novashop.fr` (désactivable : `SEED_DEMO_USERS=false`).
 
 ### shop-service
 
-API FastAPI, préfixe `/api/shop`, port interne 8000. C'est le marchand NovaShop : catalogue (5 catégories,
-21 produits), panier, commandes, visuels SVG générés à la volée. Vérifie les JWT localement, sans appeler
+API FastAPI, préfixe `/api/shop`, port interne 8000. C'est le marchand PokéBling : 609 cartes Pokémon numériques
+(5 sets, données TCGdex, images chargées par le navigateur depuis TCGdex), 4 lots de PokéDollars, 6 boosters
+payés en PokéDollars, panier, commandes, porte-monnaie et collection. Vérifie les JWT localement, sans appeler
 `auth-service`. Délègue le débit et le remboursement des cartes à `payment-service`. Base `shop_db`,
 rôle `shop_user`. Seul service connecté à la fois au réseau du front et au réseau du paiement.
 
@@ -190,7 +193,7 @@ flowchart LR
 
 Choix volontaire (commentaire dans `docker-compose.yml`) : si `payment-service` tombe, la boutique reste
 consultable (catalogue, panier) et le paiement répond 503 sans rien débiter. C'est le **mode dégradé** de
-NovaShop. Si `shop-service` dépendait de `payment-service`, une panne du paiement empêcherait aussi le
+PokéBling. Si `shop-service` dépendait de `payment-service`, une panne du paiement empêcherait aussi le
 démarrage de la boutique.
 
 ## Sondes de santé (healthchecks)
@@ -233,8 +236,8 @@ reste à la charge du moteur de remédiation.
    essai dans 2.0s`), puis arrêt du processus (`RuntimeError`), et Docker relance le conteneur ;
 3. données de démonstration, si absentes :
    - `auth-service` : comptes de démo (log `Comptes de démo créés : leo@novashop.fr, ines@novashop.fr`) ;
-   - `shop-service` : catalogue (log `Catalogue de démonstration inséré : 21 produits`) ;
-   - `payment-service` : marchand `novashop` (log `Marchand de démo novashop : créé`, ou `clé API renouvelée`
-     si `MERCHANT_API_KEY` a changé).
+   - `shop-service` : catalogue (log `Catalogue PokéBling inséré : 609 cartes, 4 lots de PokéDollars, 6 boosters`) ;
+   - `payment-service` : marchand `novashop` (log `Marchand de démo novashop : créé`, `clé API renouvelée` ou `renommé en PokéBling`
+     si `MERCHANT_API_KEY` ou `MERCHANT_NAME` a changé).
 
 `rag-service` démarre son cycle d'indexation et précharge le modèle (log `Modèle gemma4:e4b chargé`).

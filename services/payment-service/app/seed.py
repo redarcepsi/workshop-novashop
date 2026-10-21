@@ -1,4 +1,4 @@
-"""Marchand de démonstration (NovaShop), créé au démarrage s'il n'existe pas (désactivable : SEED_MERCHANT=false)."""
+"""Marchand de démonstration (PokéBling), créé au démarrage s'il n'existe pas (désactivable : SEED_MERCHANT=false)."""
 
 import logging
 
@@ -19,11 +19,18 @@ def seed_merchant(db: Session) -> None:
     if merchant is None:
         db.add(Merchant(code=settings.merchant_code, name=settings.merchant_name, api_key_hash=key_hash))
         action = "créé"
-    elif merchant.api_key_hash != key_hash:
-        merchant.api_key_hash = key_hash
-        action = "clé API renouvelée"
     else:
-        return
+        changes = []
+        if merchant.api_key_hash != key_hash:
+            merchant.api_key_hash = key_hash
+            changes.append("clé API renouvelée")
+        if merchant.name != settings.merchant_name:
+            # La boutique NovaShop est devenue PokéBling : le nom suit la configuration, le code reste "novashop"
+            merchant.name = settings.merchant_name
+            changes.append(f"renommé en {settings.merchant_name}")
+        if not changes:
+            return
+        action = ", ".join(changes)
     try:
         db.commit()
     except IntegrityError:

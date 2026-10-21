@@ -25,7 +25,7 @@ def _utcnow() -> datetime:
 
 
 class Merchant(Base):
-    """Client de la plateforme (ex. NovaShop). Il s'authentifie par clé API, dont seul le hash est stocké."""
+    """Client de la plateforme (ex. PokéBling). Il s'authentifie par clé API, dont seul le hash est stocké."""
 
     __tablename__ = "merchants"
 
@@ -67,7 +67,7 @@ class Transaction(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     reference: Mapped[str] = mapped_column(String(32), unique=True)  # identifiant public : PAY_XXXXXXXXXXXXXXXX
     merchant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("merchants.id"), index=True)
-    merchant_reference: Mapped[str] = mapped_column(String(64), index=True)  # ex. numéro de commande NovaShop
+    merchant_reference: Mapped[str] = mapped_column(String(64), index=True)  # ex. numéro de commande PokéBling
     idempotency_key: Mapped[str | None] = mapped_column(String(64))
 
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))

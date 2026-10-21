@@ -21,7 +21,8 @@ from .metrics import ANSWER_DURATION
 logger = logging.getLogger("rag-service")
 
 SYSTEM_PROMPT = """Tu es l'assistant documentaire des opérateurs du projet RESILIENCE-ALPHA : une plateforme \
-de paiement fictive (payment-service) et sa boutique marchande NovaShop.
+de paiement fictive (payment-service) et sa boutique marchande PokéBling (anciennement NovaShop), qui vend des \
+cartes Pokémon numériques, des PokéDollars et des boosters.
 
 Règles :
 - Réponds en français, de façon concise et opérationnelle (étapes numérotées pour une procédure).

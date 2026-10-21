@@ -41,11 +41,11 @@ export default function Register() {
   return (
     <AuthShell
       title="Créer un compte"
-      subtitle="Pour passer commande et suivre vos achats. Votre panier actuel sera conservé."
+      subtitle="Pour ouvrir des boosters et construire votre collection. Votre panier actuel sera conservé."
       footer={
         <>
           Déjà inscrit ?{' '}
-          <Link to="/login" state={location.state} className="font-semibold text-brand-600 hover:text-brand-700">
+          <Link to="/login" state={location.state} className="font-semibold text-gold-300 hover:text-gold-200">
             Se connecter
           </Link>
         </>
@@ -94,15 +94,15 @@ export default function Register() {
             {RULES.map((r) => {
               const ok = r.test(form.password)
               return (
-                <li key={r.label} className={`flex items-center gap-1.5 text-xs ${ok ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                <li key={r.label} className={`flex items-center gap-1.5 text-xs ${ok ? 'text-emerald-300' : 'text-night-400'}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400' : 'bg-night-600'}`} />
                   {r.label}
                 </li>
               )
             })}
           </ul>
         </Field>
-        <Button type="submit" loading={submitting} disabled={!passwordOk} variant="dark" className="w-full py-3">
+        <Button type="submit" loading={submitting} disabled={!passwordOk} className="w-full py-3">
           Créer mon compte
         </Button>
       </form>

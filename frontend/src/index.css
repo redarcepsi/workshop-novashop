@@ -2,20 +2,252 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    min-height: 100vh;
+    background-color: theme('colors.night.950');
+    /* Halos violet et or, fixes derrière le contenu */
+    background-image:
+      radial-gradient(60rem 40rem at 10% -10%, rgb(124 58 237 / 0.22), transparent 60%),
+      radial-gradient(50rem 35rem at 110% 10%, rgb(245 163 0 / 0.12), transparent 60%),
+      radial-gradient(40rem 30rem at 50% 120%, rgb(56 189 248 / 0.1), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgb(255 194 28 / 0.35);
+  }
+}
+
 @layer components {
   .container-page {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
   }
 
-  .input {
-    @apply block w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm
-      placeholder:text-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15
-      disabled:cursor-not-allowed disabled:bg-slate-50;
+  /* Surface de base : panneaux, cartes d'information */
+  .panel {
+    @apply rounded-2xl border border-white/10 bg-night-900/70 shadow-xl shadow-black/20 backdrop-blur;
   }
 
-  .card {
-    @apply rounded-2xl border border-slate-200/70 bg-white shadow-sm;
+  .input {
+    @apply block w-full rounded-xl border border-white/10 bg-night-950/60 px-4 py-2.5 text-sm text-white shadow-inner
+      placeholder:text-night-400 transition focus:border-gold-400/70 focus:outline-none focus:ring-4 focus:ring-gold-400/15
+      disabled:cursor-not-allowed disabled:opacity-60;
   }
+
+  .text-bling {
+    background: linear-gradient(100deg, #fff2c4 0%, #ffc21c 30%, #f5a300 45%, #fff8e1 55%, #ffc21c 70%, #d97e00 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: bling-text 6s ease-in-out infinite;
+  }
+
+  /* Le bleu de « Bling » dans le logo */
+  .text-bling-blue {
+    background: linear-gradient(100deg, #b9ecff 0%, #38bdf8 35%, #1d6ff2 60%, #7dd3fc 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: bling-text 6s ease-in-out infinite;
+  }
+
+  .text-holo {
+    background: linear-gradient(100deg, #f0abfc, #93c5fd, #6ee7b7, #fde68a, #f0abfc);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: bling-text 8s linear infinite;
+  }
+}
+
+@keyframes bling-text {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ------------------------------------------------------------------ cartes Pokémon : inclinaison et reflets */
+
+.poke-card {
+  --rx: 0deg;
+  --ry: 0deg;
+  --mx: 50%;
+  --my: 50%;
+  --o: 0;
+  position: relative;
+  aspect-ratio: 63 / 88;
+  border-radius: 4.5% / 3.2%;
+  overflow: hidden;
+  isolation: isolate;
+  transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s;
+  will-change: transform;
+}
+.poke-card[data-active='true'] {
+  transition: transform 0.08s linear, box-shadow 0.4s;
+}
+.poke-card > img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+
+/* Reflet de lumière qui suit le pointeur */
+.poke-card .glare {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: radial-gradient(
+    farthest-corner circle at var(--mx) var(--my),
+    rgb(255 255 255 / 0.55) 0%,
+    rgb(255 255 255 / 0.12) 28%,
+    transparent 62%
+  );
+  mix-blend-mode: overlay;
+  opacity: var(--o);
+  transition: opacity 0.3s;
+}
+
+/* Effet holographique des cartes rares : arc-en-ciel en color-dodge */
+.poke-card .shine {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image:
+    repeating-linear-gradient(115deg, #ff7773 0%, #ffed5f 7%, #a8ff5f 14%, #83fff7 21%, #7894ff 28%, #d875ff 35%, #ff7773 42%),
+    repeating-linear-gradient(45deg, rgb(14 21 46 / 0.5) 0%, rgb(143 163 163 / 0.4) 4%, rgb(14 21 46 / 0.5) 8%);
+  background-size: 400% 400%, 200% 200%;
+  background-position: var(--mx) var(--my), calc(100% - var(--mx)) calc(100% - var(--my));
+  background-blend-mode: overlay;
+  mix-blend-mode: color-dodge;
+  filter: brightness(0.75) contrast(1.4) saturate(1.1);
+  opacity: calc(var(--o) * 0.55);
+  transition: opacity 0.3s;
+}
+
+/* Éclat qui balaie régulièrement les cartes rares, même sans pointeur (écrans tactiles) */
+.poke-card.is-holo::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: -50%;
+  z-index: 3;
+  background: linear-gradient(105deg, transparent 42%, rgb(255 255 255 / 0.35) 50%, transparent 58%);
+  transform: translateX(-60%);
+  animation: sheen 5.5s ease-in-out infinite;
+  mix-blend-mode: soft-light;
+}
+@keyframes sheen {
+  0%, 62% { transform: translateX(-60%); }
+  85%, 100% { transform: translateX(60%); }
+}
+
+/* ------------------------------------------------------------------ retournement (ouverture de booster) */
+
+.flip {
+  perspective: 1200px;
+}
+.flip-inner {
+  position: relative;
+  aspect-ratio: 63 / 88;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.flip[data-flipped='true'] .flip-inner {
+  transform: rotateY(180deg);
+}
+.flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-front {
+  transform: rotateY(180deg);
+}
+
+/* Halo derrière une carte rare révélée */
+.reveal-glow::before {
+  content: '';
+  position: absolute;
+  inset: -18%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glow, #ffc21c) 0%, transparent 65%);
+  opacity: 0.75;
+  filter: blur(14px);
+  animation: glow-pulse 2.4s ease-in-out infinite;
+}
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.94); }
+  50% { opacity: 0.85; transform: scale(1.04); }
+}
+
+/* ------------------------------------------------------------------ paquets de boosters */
+
+.booster-pack {
+  position: relative;
+  aspect-ratio: 5 / 8;
+  border-radius: 10px;
+  container-type: inline-size; /* textes en cqw : proportionnels à la taille du paquet */
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--c1), var(--c2));
+  box-shadow:
+    0 25px 50px -12px rgb(0 0 0 / 0.6),
+    inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+/* Bords sertis en haut et en bas */
+.booster-pack::before,
+.booster-pack::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4.5%;
+  z-index: 3;
+  background: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.35) 0 3px, rgb(0 0 0 / 0.25) 3px 6px);
+}
+.booster-pack::before {
+  top: 0;
+}
+.booster-pack::after {
+  bottom: 0;
+}
+.booster-pack .foil {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 0.35) 45%, transparent 60%),
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 0.06) 0 2px, transparent 2px 8px);
+  background-size: 250% 100%, auto;
+  animation: foil 4.5s ease-in-out infinite;
+  mix-blend-mode: overlay;
+}
+@keyframes foil {
+  0%, 100% { background-position: 120% 0, 0 0; }
+  50% { background-position: -20% 0, 0 0; }
+}
+
+/* Déchirure du haut du paquet */
+.pack-tear {
+  animation: pack-tear 0.65s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+@keyframes pack-tear {
+  to { transform: translate(40%, -160%) rotate(28deg); opacity: 0; }
+}
+.pack-drop {
+  animation: pack-drop 0.55s 0.35s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+@keyframes pack-drop {
+  to { transform: translateY(70%) scale(0.92); opacity: 0; }
 }
 
 /* Masque les flèches des champs numériques */
@@ -26,4 +258,23 @@ input[type='number']::-webkit-inner-spin-button {
 }
 input[type='number'] {
   -moz-appearance: textfield;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .poke-card,
+  .poke-card[data-active='true'] {
+    transform: none;
+    transition: none;
+  }
+  .poke-card.is-holo::after,
+  .booster-pack .foil,
+  .text-bling,
+  .text-bling-blue,
+  .text-holo,
+  .reveal-glow::before {
+    animation: none;
+  }
+  .flip-inner {
+    transition-duration: 0.01s;
+  }
 }

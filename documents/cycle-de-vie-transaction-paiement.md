@@ -50,11 +50,11 @@ avec l'horodatage et un message :
 
 | Événement | Message enregistré |
 |-----------|--------------------|
-| `PENDING` | `Demande reçue de NovaShop` |
+| `PENDING` | `Demande reçue de PokéBling` |
 | `AUTHORIZED` | `Autorisée par la banque émettrice` |
 | `CAPTURED` | `Fonds capturés` |
 | `DECLINED` | Motif du refus, par exemple `Paiement refusé : fonds insuffisants` |
-| `REFUNDED` | `Remboursement demandé par NovaShop` |
+| `REFUNDED` | `Remboursement demandé par PokéBling` |
 
 Un paiement accepté produit 3 événements (`PENDING`, `AUTHORIZED`, `CAPTURED`), un refus en produit 2
 (`PENDING`, `DECLINED`), un remboursement en ajoute 1. Ce journal est la base de la traçabilité des
@@ -75,7 +75,7 @@ sont stockés.
 
 ## Idempotence des paiements
 
-Le marchand envoie une `Idempotency-Key` (NovaShop : le numéro de commande). Une contrainte unique
+Le marchand envoie une `Idempotency-Key` (PokéBling : le numéro de commande). Une contrainte unique
 `(merchant_id, idempotency_key)` garantit au plus un paiement par clé et par marchand.
 
 | Cas | Résultat |
@@ -92,9 +92,9 @@ avait abouti sans que la réponse arrive, la seconde renvoie le même paiement.
 ## Identifiants d'une transaction
 
 - `reference` : identifiant public, `PAY_` suivi de 16 caractères hexadécimaux en majuscules
-  (par exemple `PAY_8FA8A393135D82FF`). Utilisé dans les URL et stocké par NovaShop dans
+  (par exemple `PAY_8FA8A393135D82FF`). Utilisé dans les URL et stocké par PokéBling dans
   `orders.payment_reference`.
-- `merchant_reference` : référence côté marchand, le numéro de commande NovaShop (`CMD-AAMMJJ-XXXXXX`).
+- `merchant_reference` : référence côté marchand, le numéro de commande PokéBling (`CMD-AAMMJJ-XXXXXX`).
 - `id` : UUID interne, jamais exposé par l'API.
 
 ## Horodatages d'une transaction
