@@ -1,0 +1,34 @@
+# Collecte des métriques NovaShop par le Prometheus de la VM de supervision.
+# À copier dans scrape_configs de prometheus.yml, sur la VM, puis recharger Prometheus.
+#
+#   192.168.137.1:9464   adresse du PC Hôte et port de metrics-gateway (METRICS_BIND, METRICS_PORT dans .env)
+#   credentials          valeur de METRICS_TOKEN (.env du PC Hôte)
+#
+# Prérequis sur le PC Hôte : docker compose --profile monitoring up -d
+# Vérification depuis la VM :
+#   curl -H "Authorization: Bearer <METRICS_TOKEN>" http://192.168.137.1:9464/metrics/payment
+#
+# Une seule cible (la passerelle) et un chemin par service. L'étiquette service distingue les séries ;
+# up{service="payment-service"} = 0 si la passerelle ou le service ne répond pas. Pour le frontend, up indique
+# que nginx-exporter répond, nginx_up que nginx lui-même répond.
+
+scrape_configs:
+  - job_name: novashop
+    scrape_interval: 15s
+    authorization:
+      credentials: metrics_dev_only_change_me
+    static_configs:
+      - targets: ["192.168.137.1:9464"]
+        labels: {service: auth-service, __metrics_path__: /metrics/auth}
+      - targets: ["192.168.137.1:9464"]
+        labels: {service: shop-service, __metrics_path__: /metrics/shop}
+      - targets: ["192.168.137.1:9464"]
+        labels: {service: payment-service, __metrics_path__: /metrics/payment}
+      - targets: ["192.168.137.1:9464"]
+        labels: {service: rag-service, __metrics_path__: /metrics/rag}
+      - targets: ["192.168.137.1:9464"]
+        labels: {service: frontend, __metrics_path__: /metrics/nginx}
+    relabel_configs:
+      # instance = nom du service plutôt que l'adresse de la passerelle, commune à toutes les cibles
+      - source_labels: [service]
+        target_label: instance

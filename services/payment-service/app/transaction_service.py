@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import processor
+from . import metrics, processor
 from .models import Merchant, Transaction, TransactionStatus
 from .schemas import PaymentCreate
 
@@ -20,12 +20,13 @@ def _reference() -> str:
 
 
 def _log(tx: Transaction) -> None:
-    # Une ligne clé=valeur par opération : facile à filtrer dans Loki / le SIEM
+    # Une ligne clé=valeur par opération : facile à filtrer dans Loki / le SIEM. Les compteurs Prometheus suivent
     logger.info(
         "transaction reference=%s merchant=%s merchant_reference=%s status=%s amount=%s currency=%s decline_code=%s",
         tx.reference, tx.merchant.code, tx.merchant_reference, tx.status.value, tx.amount, tx.currency,
         tx.decline_code or "-",
     )
+    metrics.record(tx)
 
 
 def _by_idempotency_key(db: Session, merchant: Merchant, key: str) -> Transaction | None:

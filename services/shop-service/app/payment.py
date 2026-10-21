@@ -14,6 +14,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from .config import settings
+from .metrics import PAYMENT_SERVICE_ERRORS
 from .schemas import CardPayment
 
 logger = logging.getLogger("shop-service")
@@ -37,10 +38,12 @@ def _send(method: str, path: str, **kwargs) -> httpx.Response:
         try:
             response = _client.request(method, path, **kwargs)
         except httpx.TransportError as exc:
+            PAYMENT_SERVICE_ERRORS.labels("timeout" if isinstance(exc, httpx.TimeoutException) else "unreachable").inc()
             logger.warning("payment-service injoignable (tentative %s/%s) : %r", attempt, settings.payment_attempts, exc)
         else:
             if response.status_code < 500:
                 return response
+            PAYMENT_SERVICE_ERRORS.labels("server_error").inc()
             logger.warning(
                 "payment-service en erreur %s (tentative %s/%s)", response.status_code, attempt, settings.payment_attempts
             )

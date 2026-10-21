@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from .config import API_PREFIX
 from .database import init_db
@@ -39,3 +40,13 @@ app = FastAPI(
 )
 
 app.include_router(router)
+
+# Métriques Prometheus (requêtes par route, code HTTP et durée) sur /metrics. payment-service n'est pas publié :
+# seule la passerelle metrics-gateway (profil "monitoring") relaie cette route, avec un jeton.
+# Les sondes de santé, appelées toutes les 10 s, ne sont pas comptées. Métriques métier : voir metrics.py
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["^/metrics$", f"^{API_PREFIX}/health$"],
+)
+instrumentator.instrument(app, latency_lowr_buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10))
+instrumentator.expose(app, include_in_schema=False)

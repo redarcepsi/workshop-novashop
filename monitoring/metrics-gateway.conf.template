@@ -1,0 +1,51 @@
+# Passerelle des métriques (profil "monitoring") : le seul point d'entrée du Prometheus de la VM de supervision.
+#
+#   /metrics/auth      → auth-service:8000/metrics
+#   /metrics/shop      → shop-service:8000/metrics
+#   /metrics/payment   → payment-service:8000/metrics
+#   /metrics/rag       → rag-service:8000/metrics      (502 tant que le profil "ai" n'est pas lancé)
+#   /metrics/nginx     → nginx-exporter:9113/metrics   (compteurs du frontend)
+#
+# Les API restent non publiées : la passerelle ne relaie que leur route /metrics, et seulement avec le jeton
+# METRICS_TOKEN (en-tête "Authorization: Bearer <jeton>", option authorization de Prometheus). Pas de filtrage par
+# adresse IP : sous Docker Desktop, toutes les requêtes arrivent avec l'adresse de la passerelle Docker.
+#
+# Fichier modèle : au démarrage, l'image nginx remplace ${METRICS_TOKEN} par sa valeur. NGINX_ENVSUBST_FILTER limite
+# la substitution aux variables METRICS_* : les variables nginx ($http_authorization, $1…) restent intactes.
+
+# Seules les requêtes refusées ou en échec sont journalisées : les collectes réussies (5 toutes les 15 s) noieraient
+# le journal, alors qu'une rafale de 401 signale quelqu'un qui cherche le jeton
+map $status $metrics_gateway_loggable {
+    ~^2     0;
+    default 1;
+}
+
+server {
+    listen 80;
+    server_name _;
+    access_log /var/log/nginx/access.log main if=$metrics_gateway_loggable;
+
+    # DNS interne de Docker, interrogé à chaque requête : suit les services recréés, et démarre même si rag-service
+    # (profil "ai") est absent
+    resolver 127.0.0.11 valid=5s ipv6=off;
+
+    if ($http_authorization != "Bearer ${METRICS_TOKEN}") {
+        return 401;
+    }
+
+    # Le jeton s'arrête ici : il n'est pas transmis aux services
+    proxy_set_header Authorization "";
+
+    location ~ ^/metrics/(auth|shop|payment|rag)$ {
+        proxy_pass http://$1-service:8000/metrics;
+    }
+
+    location = /metrics/nginx {
+        set $nginx_exporter http://nginx-exporter:9113/metrics;
+        proxy_pass $nginx_exporter;
+    }
+
+    location / {
+        return 404;
+    }
+}

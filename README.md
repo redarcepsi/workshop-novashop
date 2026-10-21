@@ -57,27 +57,33 @@ flowchart LR
 | `ollama` (IA)     | Modèles locaux `gemma4:e4b` et `embeddinggemma` (`--profile ai`)  | non                        | –            |
 | `rag-service` (IA)| Assistant documentaire LangChain : index Chroma de `documents/`   | non                        | volume `rag-index` |
 | `assistant-ui` (IA) | Interface de chat Streamlit de l'assistant (`--profile ai`)     | `HTTP_BIND:8083`           | –            |
+| `metrics-gateway` (sup.) | Passerelle des métriques pour Prometheus, à jeton (`--profile monitoring`) | `METRICS_BIND:9464` | – |
+| `nginx-exporter` (sup.) | Compteurs nginx du frontend au format Prometheus (`--profile monitoring`) | non              | –            |
+| `log-shipper` (sup.) | Grafana Alloy : journaux des conteneurs vers Loki (`--profile monitoring`) | non             | volume `alloy-data` |
+| `docker-socket-proxy` (sup.) | API Docker en lecture seule pour `log-shipper` (`--profile monitoring`) | non       | –            |
 
 ### Réseaux et exposition
 
-Seules la passerelle nginx et l'interface de l'assistant (profil `ai`) sont publiées sur le réseau. Chaque service n'est branché que sur les réseaux dont il a besoin :
+Seules la passerelle nginx, l'interface de l'assistant (profil `ai`) et la passerelle des métriques (profil `monitoring`) sont publiées sur le réseau. Chaque service n'est branché que sur les réseaux dont il a besoin :
 
 | Réseau       | Membres                                   | Type                 |
 |--------------|-------------------------------------------|----------------------|
 | `edge`       | frontend                                  | porte le port publié |
-| `frontend`   | frontend, auth-service, shop-service      | `internal`           |
-| `payment`    | shop-service, payment-service (+ payment-console) | `internal`   |
+| `frontend`   | frontend, auth-service, shop-service (+ metrics-gateway, nginx-exporter) | `internal` |
+| `payment`    | shop-service, payment-service (+ payment-console, metrics-gateway) | `internal` |
 | `backend`    | auth-service, shop-service, postgres      | `internal`           |
 | `payment-db` | payment-service, postgres                 | `internal`           |
 | `tools`      | adminer, payment-console                  | profil `tools`       |
-| `ai`         | ollama, rag-service, assistant-ui         | `internal`, profil `ai` |
+| `ai`         | ollama, rag-service, assistant-ui (+ metrics-gateway) | `internal`, profil `ai` |
 | `ai-egress`  | ollama (téléchargement des modèles)       | profil `ai`          |
 | `assistant-edge` | assistant-ui (porte le port publié)   | profil `ai`          |
+| `monitoring-edge` | metrics-gateway (port publié), log-shipper (envoi vers Loki) | profil `monitoring` |
+| `docker-api` | log-shipper, docker-socket-proxy          | `internal`, profil `monitoring` |
 
 Conséquences, vérifiées sur la stack :
 
-- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seuls les ports 8080 (site) et 8083
-  (assistant, profil `ai`) répondent : la base et les API ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
+- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seuls les ports 8080 (site), 8083
+  (assistant, profil `ai`) et 9464 (métriques, profil `monitoring`, jeton exigé) répondent : la base et les API ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
 - `payment-service` n'est joignable que par `shop-service` (ni nginx ni auth-service ne le voient) et, si on
   la lance, par sa console d'exploration sur 127.0.0.1 ;
 - un réseau `internal` n'a pas de route vers l'extérieur : les API et la base **ne peuvent rien envoyer
@@ -178,6 +184,7 @@ Livraison : 4,90 €, offerte dès 50 € (configurable via `SHIPPING_COST` et `
 docker compose ps                      # état et santé des conteneurs
 docker compose logs -f shop-service    # logs d'un service
 docker compose --profile tools up -d   # + Adminer (http://127.0.0.1:8081) et console paiement (http://127.0.0.1:8082)
+docker compose --profile monitoring up -d   # + métriques et journaux pour la VM de supervision (voir plus bas)
 docker compose down                    # arrêter
 docker compose down -v                 # arrêter ET supprimer les données (le catalogue sera recréé)
 ```
@@ -243,6 +250,49 @@ Choix et garde-fous :
 | Interface | Streamlit (`assistant-ui`) : une conversation, des fichiers joints, la réflexion repliable, la réponse en Markdown ; ni compte, ni historique, ni choix de modèle ; publiée comme le site (`HTTP_BIND`) |
 | Isolation | `rag-service` sur un réseau `internal` sans accès à la plateforme ; documents en lecture seule ; `assistant-ui` n'appelle que `rag-service` (ni Ollama, ni web, ni exécution de code) |
 
+## Supervision (Prometheus, Loki, Grafana)
+
+Prometheus, Loki et Grafana tournent sur une **VM de supervision** séparée. Le profil `monitoring` leur fournit
+les métriques et les journaux de la plateforme, sans publier les API (flèche = qui appelle qui) :
+
+```mermaid
+flowchart LR
+    subgraph hote["PC Hôte (Docker)"]
+      G[metrics-gateway<br/>:9464, jeton] -->|/metrics| A[auth-service] & S[shop-service] & P[payment-service] & R[rag-service]
+      G --> X[nginx-exporter] -->|"stub_status :8081"| F[frontend]
+      L[log-shipper<br/>Grafana Alloy] --> D[docker-socket-proxy<br/>lecture seule]
+    end
+    subgraph vm["VM de supervision"]
+      PR[Prometheus]
+      LO[Loki]
+      GR[Grafana] --> PR & LO
+    end
+    PR -->|"Bearer METRICS_TOKEN"| G
+    L -->|LOKI_URL| LO
+```
+
+```bash
+# Dans .env : METRICS_TOKEN (jeton fort) et LOKI_URL=http://<adresse-de-la-VM>:3100/loki/api/v1/push
+docker compose --profile monitoring up -d
+```
+
+- **Métriques** : chaque API expose `/metrics` hors de son préfixe `/api/<service>` : la passerelle du site ne
+  la relaie jamais. Seule `metrics-gateway` y accède, et ne répond qu'avec le jeton (401 sinon). Côté VM, copier
+  [`monitoring/prometheus-scrape.example.yml`](monitoring/prometheus-scrape.example.yml) dans `prometheus.yml`.
+- **Contenu** : requêtes, codes HTTP et durées par route des 4 API ; paiements par statut et motif de refus,
+  montant encaissé ; pannes et lenteurs de `payment-service` vues par la boutique ; compensations à
+  régulariser ; durée et échecs des réponses de l'assistant ; connexions et requêtes de nginx.
+- **Journaux** : `log-shipper` envoie à Loki les journaux de tous les conteneurs, étiquetés par `service` et
+  `level`, sans les lignes des sondes `/health` ni des collectes `/metrics`. Il lit Docker à travers
+  `docker-socket-proxy`, qui refuse toute écriture.
+- **Isolation** : la passerelle rejoint les réseaux existants (comme `payment-console`) plutôt qu'un réseau
+  commun à tous les services, qui permettrait à `auth-service` de joindre `payment-service`. Pas de filtrage par
+  IP : Docker Desktop masque l'adresse source, d'où le jeton.
+- Détail des métriques, requêtes PromQL et LogQL prêtes pour Grafana :
+  [`documents/metriques-journaux-et-signaux.md`](documents/metriques-journaux-et-signaux.md).
+- Arrêter la supervision seule :
+  `docker compose --profile monitoring stop metrics-gateway nginx-exporter log-shipper docker-socket-proxy`.
+
 ## Développement du front sans rebuild
 
 ```bash
@@ -264,6 +314,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 | `/login`, `/register` | Authentification (le panier invité est conservé)             |
 
 ## Endpoints
+
+Chaque API expose aussi `GET /metrics` (format Prometheus), **hors** de son préfixe : la passerelle du site ne
+la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervision-prometheus-loki-grafana)).
 
 **auth-service** (`/api/auth`)
 
@@ -342,8 +395,12 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 │   └── assistant-ui/                   # interface de chat Streamlit (app.py, style.css, .streamlit/config.toml)
 ├── documents/                          # fichiers lus par l'assistant (voir documents/_LISEZ-MOI.md)
 ├── docker-compose.gpu.yml              # option : GPU NVIDIA pour Ollama
+├── monitoring/                         # profil "monitoring" (VM de supervision)
+│   ├── metrics-gateway.conf.template   # passerelle des métriques : /metrics/<service>, jeton METRICS_TOKEN
+│   ├── alloy/config.alloy              # log-shipper : journaux des conteneurs → Loki
+│   └── prometheus-scrape.example.yml   # à copier dans prometheus.yml sur la VM
 └── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx
-    ├── nginx.conf                      # SPA + reverse proxy /api/*
+    ├── nginx.conf                      # SPA + reverse proxy /api/* ; stub_status sur le port 8081 (non publié)
     └── src/{pages,components,context,utils}
 ```
 

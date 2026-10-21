@@ -1,0 +1,67 @@
+// Journaux des conteneurs NovaShop → Loki de la VM de supervision (LOKI_URL), profil "monitoring".
+// Alloy lit l'API Docker à travers docker-socket-proxy, limité à la lecture des conteneurs et de leurs journaux.
+//
+// Étiquettes Loki : service (nom du service compose), container, stream (stdout ou stderr) et, pour les services
+// Python, level (INFO, WARNING, ERROR). Exemple : {service="payment-service"} | logfmt | status="DECLINED"
+
+discovery.docker "novashop" {
+	host = "tcp://docker-socket-proxy:2375"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=novashop"]
+	}
+}
+
+discovery.relabel "novashop" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_log_stream"]
+		target_label  = "stream"
+	}
+}
+
+loki.source.docker "novashop" {
+	host          = "tcp://docker-socket-proxy:2375"
+	targets       = discovery.docker.novashop.targets
+	relabel_rules = discovery.relabel.novashop.rules
+	labels        = {project = "novashop"}
+	forward_to    = [loki.process.novashop.receiver]
+}
+
+loki.process "novashop" {
+	// Sondes de santé (toutes les 10 s), collectes Prometheus (toutes les 15 s) et sonde d'Ollama : du bruit
+	stage.drop {
+		expression = `"GET (/api/[a-z]+/health|/metrics) HTTP|GET\s+"/api/tags"`
+	}
+
+	// "INFO:payment-service:transaction …", "WARNING:shop-service:…", "INFO:     <ip> - "GET …" (uvicorn)
+	stage.regex {
+		expression = `^(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL):`
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	forward_to = [loki.write.vm.receiver]
+}
+
+loki.write "vm" {
+	endpoint {
+		// Sans LOKI_URL, les envois échouent sur cette adresse réservée : le journal d'Alloy dit ce qui manque
+		url = coalesce(sys.env("LOKI_URL"), "http://loki-url-non-definie.invalid:3100/loki/api/v1/push")
+	}
+}

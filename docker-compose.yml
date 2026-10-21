@@ -235,6 +235,79 @@ services:
       - ai
       - assistant-edge
 
+  # ---------------------------------------------------------------------------
+  # Supervision, profil "monitoring" : alimente Prometheus, Loki et Grafana, installés sur la VM de supervision.
+  #   docker compose --profile monitoring up -d        → port 9464, publié sur METRICS_BIND (par défaut HTTP_BIND)
+  #
+  #   metrics-gateway      ── point d'entrée unique des métriques, protégé par le jeton METRICS_TOKEN :
+  #                           /metrics/auth, /metrics/shop, /metrics/payment, /metrics/rag, /metrics/nginx
+  #   nginx-exporter       ── convertit les compteurs de nginx (stub_status, port 8081 du frontend) pour Prometheus
+  #   log-shipper          ── Grafana Alloy : envoie les journaux de tous les conteneurs au Loki de la VM (LOKI_URL)
+  #   docker-socket-proxy  ── API Docker en lecture seule pour log-shipper : liste et journaux des conteneurs
+  #
+  # Chaque API expose /metrics hors de son préfixe /api/<service> : nginx ne la relaie pas, seule la passerelle
+  # l'atteint. Celle-ci rejoint les réseaux existants, comme payment-console, plutôt qu'un réseau commun à tous les
+  # services qui permettrait à chacun de joindre les autres (auth-service → payment-service…).
+  # Côté VM : monitoring/prometheus-scrape.example.yml
+  # ---------------------------------------------------------------------------
+  metrics-gateway:
+    image: nginx:1.27-alpine
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:-metrics_dev_only_change_me}
+      NGINX_ENVSUBST_FILTER: ^METRICS_
+    volumes:
+      - ./monitoring/metrics-gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "${METRICS_BIND:-${HTTP_BIND:-0.0.0.0}}:${METRICS_PORT:-9464}:80"
+    networks:
+      - frontend          # auth-service, shop-service, nginx-exporter
+      - payment           # payment-service
+      - ai                # rag-service
+      - monitoring-edge
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.4.2
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command: ["--nginx.scrape-uri=http://frontend:8081/stub_status"]
+    networks:
+      - frontend
+
+  # Le socket Docker donne le contrôle de l'hôte : log-shipper n'y accède qu'à travers ce proxy, qui refuse toute
+  # écriture (POST=0 par défaut) et toute autre section de l'API que les conteneurs et les réseaux (lus par la
+  # découverte d'Alloy pour étiqueter les conteneurs)
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-api
+
+  log-shipper:
+    image: grafana/alloy:v1.8.3
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    environment:
+      # Ex. http://192.168.137.20:3100/loki/api/v1/push (adresse de la VM de supervision)
+      LOKI_URL: ${LOKI_URL:-}
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Position de lecture de chaque journal : un redémarrage ne renvoie pas tout l'historique à Loki
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - docker-socket-proxy
+    networks:
+      - docker-api
+      - monitoring-edge
+
 networks:
   edge:
   frontend:
@@ -252,8 +325,13 @@ networks:
     internal: true
   ai-egress:
   assistant-edge:
+  # Supervision : metrics-gateway y publie son port et log-shipper en sort vers la VM ; l'API Docker reste interne
+  monitoring-edge:
+  docker-api:
+    internal: true
 
 volumes:
   pgdata:
   ollama-models:
   rag-index:
+  alloy-data:

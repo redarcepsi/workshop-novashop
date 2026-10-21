@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from . import payment
 from .cart_service import CENT, shipping_cost_for
+from .metrics import ORDER_COMPENSATIONS
 from .models import CartItem, Order, OrderItem, OrderStatus, Product
 from .schemas import CheckoutRequest
 from .security import CurrentUser
@@ -119,7 +120,10 @@ def checkout(db: Session, user: CurrentUser, payload: CheckoutRequest) -> Order:
         try:
             payment.refund(paid.reference)
         except HTTPException:
+            ORDER_COMPENSATIONS.labels("failed").inc()
             logger.error("Remboursement de compensation impossible pour %s : à régulariser", paid.reference)
+        else:
+            ORDER_COMPENSATIONS.labels("refunded").inc()
         raise
     return order
 
