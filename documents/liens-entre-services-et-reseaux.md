@@ -22,12 +22,13 @@ Qui appelle qui, par quel réseau, avec quelle authentification, et ce qui n'est
 | `ollama-models` | `ollama:11434` | `show`, `pull` | – | `ai` |
 | `ollama` | Internet | registre des modèles | – | `ai-egress` |
 | Opérateur | `assistant-ui` | `HTTP_BIND:8083` | sans compte | `assistant-edge` |
-| Prometheus (VM de supervision) | `metrics-gateway` | `METRICS_BIND:9464`, `/metrics/*` | `Bearer METRICS_TOKEN` | `monitoring-edge` |
+| Prometheus (compose de la supervision) | `metrics-gateway:80` | `/metrics/*` | `Bearer METRICS_TOKEN` | `monitoring-edge` |
 | `metrics-gateway` | `auth-service`, `shop-service`, `payment-service`, `rag-service` | `:8000/metrics` | – (jeton déjà vérifié par la passerelle) | `frontend`, `payment`, `ai` |
 | `metrics-gateway` | `nginx-exporter:9113` | `/metrics` | – | `frontend` |
 | `nginx-exporter` | `frontend:8081` | `/stub_status` | – | `frontend` |
 | `log-shipper` | `docker-socket-proxy:2375` | API Docker, lecture seule | – | `docker-api` |
-| `log-shipper` | Loki (VM de supervision) | `LOKI_URL`, port 3100 | – | `monitoring-edge` |
+| `log-shipper` | Loki (compose de la supervision) | `LOKI_URL` (`loki:3100`) | – | `monitoring-edge` |
+| Grafana (compose de la supervision) | Prometheus, Loki | `:9090`, `:3100` | – | réseau du compose de la supervision |
 
 ## Schéma des flux réseau
 
@@ -70,7 +71,7 @@ obligatoire entre la boutique et la plateforme de paiement.
 | `ai` | oui | ollama, ollama-models, rag-service, assistant-ui, metrics-gateway | Assistant (profil `ai`) ; collecte des métriques |
 | `ai-egress` | non | ollama | Téléchargement des modèles |
 | `assistant-edge` | non | assistant-ui | Porte le port publié 8083 |
-| `monitoring-edge` | non | metrics-gateway, log-shipper | Port publié 9464 ; envoi des journaux à la VM (profil `monitoring`) |
+| `monitoring-edge` | non | metrics-gateway, log-shipper, + Prometheus et Loki de la supervision | Collecte des métriques et envoi des journaux ; port 9464 sur `127.0.0.1` (profil `monitoring`) |
 | `docker-api` | oui | log-shipper, docker-socket-proxy | Lecture de l'API Docker (profil `monitoring`) |
 
 Un réseau `internal` n'a pas de route vers l'extérieur de Docker. Les API et la base ne peuvent donc rien
@@ -80,14 +81,19 @@ sont ceux branchés sur un réseau non `internal` : `frontend`, `ollama`, `assis
 
 `metrics-gateway` rejoint les réseaux existants (comme `payment-console`) plutôt qu'un réseau de supervision
 commun : sur un réseau commun, chaque service pourrait joindre tous les autres (`auth-service` vers
-`payment-service`…). Les conteneurs de `frontend`, `payment` et `ai` peuvent appeler la passerelle, mais elle ne
-relaie que les routes `/metrics` et exige le jeton.
+`payment-service`…). Les conteneurs de `frontend`, `payment`, `ai` et `monitoring-edge` peuvent appeler la
+passerelle, mais elle ne relaie que les routes `/metrics` et exige le jeton.
+
+Le compose de la supervision (Prometheus, Loki, Grafana) est un projet Docker distinct, sur la même VM. Seuls
+Prometheus et Loki y sont branchés sur `monitoring-edge`, déclaré chez eux comme réseau externe sous le nom
+`novashop_monitoring-edge`. Ils ne voient donc que `metrics-gateway` et `log-shipper`, aucune API ni la base. Le
+profil `monitoring` doit être lancé avant la supervision : c'est lui qui crée ce réseau.
 
 ## Ce qui n'est pas joignable
 
-- **Depuis le réseau (Wi-Fi, point d'accès)** : seuls le port 8080 de `frontend`, le port 8083
-  d'`assistant-ui` (profil `ai`) et le port 9464 de `metrics-gateway` (profil `monitoring`, jeton exigé)
-  répondent. Les ports 8081 et 8082 sont liés à `127.0.0.1` : visibles uniquement depuis le PC Hôte.
+- **Depuis le réseau (Wi-Fi, point d'accès)** : seuls le port 8080 de `frontend` et le port 8083
+  d'`assistant-ui` (profil `ai`) répondent. Les ports 8081, 8082 et 9464 (`metrics-gateway`) sont liés à
+  `127.0.0.1` : visibles uniquement depuis la VM.
 - **`payment-service`** n'est joignable que par `shop-service` et `payment-console`, et par `metrics-gateway`
   pour sa seule route `/metrics`. Ni `frontend` (nginx) ni `auth-service` ne le voient.
 - **Les routes `/metrics`** ne sont pas relayées par la passerelle du site : `http://<hôte>:8080/metrics`
@@ -132,15 +138,20 @@ connecter à la base d'un autre service.
 
 | Port | Service | Adresse d'écoute | Profil |
 |------|---------|------------------|--------|
-| 8080 | `frontend` | `HTTP_BIND` (défaut `0.0.0.0`, jour J `192.168.137.1`) | – |
+| 8080 | `frontend` | `HTTP_BIND` (défaut `0.0.0.0`, jour J : adresse de la VM sur le point d'accès) | – |
 | 8081 | `adminer` | `127.0.0.1` | `tools` |
 | 8082 | `payment-console` | `127.0.0.1` | `tools` |
 | 8083 | `assistant-ui` | `ASSISTANT_BIND` (défaut : la valeur de `HTTP_BIND`) | `ai` |
-| 9464 | `metrics-gateway` | `METRICS_BIND` (défaut : la valeur de `HTTP_BIND`) ; port `METRICS_PORT` | `monitoring` |
+| 9464 | `metrics-gateway` | `METRICS_BIND` (défaut `127.0.0.1`) ; port `METRICS_PORT` | `monitoring` |
 
-Avec `HTTP_BIND=192.168.137.1`, le site n'est publié que sur le point d'accès du consortium, pas sur le
-Wi-Fi du campus. Le point d'accès doit être actif avant `docker compose up`, et le site s'ouvre alors sur
-`http://192.168.137.1:8080` (plus sur `localhost`). L'assistant suit : `http://192.168.137.1:8083`.
+L'hôte est la VM Linux qui exécute toute la plateforme. Avec `HTTP_BIND=<adresse-de-la-VM>` (son adresse sur le
+point d'accès du consortium), le site n'est publié que sur cette interface de la VM. Il s'ouvre alors sur
+`http://<adresse-de-la-VM>:8080` (plus sur `localhost`), l'assistant sur `http://<adresse-de-la-VM>:8083`.
+L'ancienne valeur `192.168.137.1` était l'adresse du PC Hôte Windows : absente de la VM, elle ferait échouer
+`docker compose up`.
+
+Sur la VM, le pare-feu `ufw` ne filtre pas les ports publiés par Docker (Docker insère ses règles avant les
+siennes) : seule l'adresse d'écoute (`HTTP_BIND`, `ASSISTANT_BIND`, `METRICS_BIND`) décide qui les joint.
 
 ## Résolution DNS après recréation d'un conteneur
 

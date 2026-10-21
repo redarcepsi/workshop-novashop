@@ -3,8 +3,10 @@
 Documentation de la plateforme, un thème par fichier. Ces fichiers sont aussi lus par l'assistant des
 opérateurs (voir `_LISEZ-MOI.md`). Ce sommaire commence par `_` : il n'est pas indexé.
 
-État décrit : le dépôt au 21/10/2026, avec le profil `monitoring` qui alimente la VM de supervision
-(Prometheus, Loki, Grafana). À mettre à jour quand le WAF, le SIEM ou le moteur de remédiation arrivent.
+État décrit : le dépôt au 21/10/2026. Toute la plateforme tourne sur une VM Linux (Docker Engine), avec sa
+supervision (Prometheus, Loki, Grafana) dans un compose voisin que le profil `monitoring` alimente. Les
+vérifications citées dans ces fiches ont été faites sous Docker Desktop, sur le PC Hôte, avant le passage sur la
+VM. À mettre à jour quand le WAF, le SIEM ou le moteur de remédiation arrivent.
 
 ## Architecture
 

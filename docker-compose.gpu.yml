@@ -1,5 +1,7 @@
-# Accélération GPU NVIDIA pour Ollama (Docker Desktop + WSL2, pilote NVIDIA à jour côté Windows) :
+# Accélération GPU NVIDIA pour Ollama :
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ai up -d
+# Sur la VM Linux : GPU attribué à la VM, pilote NVIDIA et NVIDIA Container Toolkit installés.
+# Sous Docker Desktop (Windows) : WSL2 et pilote NVIDIA à jour côté Windows.
 # Sans carte NVIDIA, ne pas inclure ce fichier : Ollama tourne alors sur le processeur.
 services:
   ollama:

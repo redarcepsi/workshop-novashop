@@ -8,14 +8,17 @@ le fichier `.env` à la racine (modèle : `.env.example`) ; toutes ont une valeu
 
 | Variable | Défaut | Service | Rôle |
 |----------|--------|---------|------|
-| `HTTP_BIND` | `0.0.0.0` | frontend | Adresse d'écoute du site. Jour J : `192.168.137.1` (point d'accès seul) |
+| `HTTP_BIND` | `0.0.0.0` | frontend | Adresse d'écoute du site. Jour J : adresse de la VM sur le point d'accès du consortium |
 | `HTTP_PORT` | `8080` | frontend | Port du site et de la passerelle API |
-| `ASSISTANT_BIND` | valeur de `HTTP_BIND` | assistant-ui | Adresse d'écoute de l'assistant. `127.0.0.1` : PC Hôte seul |
+| `ASSISTANT_BIND` | valeur de `HTTP_BIND` | assistant-ui | Adresse d'écoute de l'assistant. `127.0.0.1` : VM seule |
 | `ASSISTANT_PORT` | `8083` | assistant-ui | Port de l'assistant |
-| `METRICS_BIND` | valeur de `HTTP_BIND` | metrics-gateway | Adresse d'écoute de la passerelle des métriques : la VM de supervision doit pouvoir la joindre |
+| `METRICS_BIND` | `127.0.0.1` | metrics-gateway | Adresse d'écoute de la passerelle des métriques : VM seule, Prometheus la joint par le réseau Docker |
 | `METRICS_PORT` | `9464` | metrics-gateway | Port de la passerelle des métriques |
 
 Les ports 8081 (`adminer`) et 8082 (`payment-console`) sont fixés sur `127.0.0.1` dans `docker-compose.yml`.
+
+`HTTP_BIND` ne doit pas reprendre `192.168.137.1` : c'est l'adresse du PC Hôte Windows sur son point d'accès,
+absente de la VM, et `docker compose up` échouerait (« cannot assign requested address »).
 
 ## Bases de données
 
@@ -61,7 +64,7 @@ hash) et `PAYMENT_API_KEY` dans `shop-service` (qu'il envoie dans `X-API-Key`). 
 
 ## Rotation de la clé API marchand
 
-1. Générer une nouvelle valeur : `python -c "import secrets; print('sk_test_' + secrets.token_urlsafe(32))"`.
+1. Générer une nouvelle valeur : `python3 -c "import secrets; print('sk_test_' + secrets.token_urlsafe(32))"`.
 2. La mettre dans `MERCHANT_API_KEY` du fichier `.env`.
 3. `docker compose up -d` : recrée `payment-service` et `shop-service` avec la nouvelle valeur.
 4. Au démarrage, `payment-service` journalise `Marchand de démo novashop : clé API renouvelée`.
@@ -76,20 +79,20 @@ Si un seul des deux conteneurs est recréé, les clés ne correspondent plus : `
 | `LLM_MODEL` | `gemma4:e4b` | ollama-models, rag-service | Modèle de génération |
 | `EMBEDDING_MODEL` | `embeddinggemma:latest` | ollama-models, rag-service | Modèle de vectorisation |
 | `OLLAMA_KEEP_ALIVE` | `30m` | ollama | Durée de maintien des modèles en mémoire |
-| `LLM_THINK` | `true` | rag-service | Mode réflexion (plus juste, environ 10 s de plus) |
+| `LLM_THINK` | `true` | rag-service | Mode réflexion (plus juste, environ 10 s de plus sur GPU, bien davantage sur processeur) |
 | `RAG_API_KEY` | valeur de développement | rag-service, assistant-ui | Secret : clé entre l'interface et `rag-service` |
 
 ## Supervision (profil monitoring)
 
 | Variable | Défaut | Services | Rôle |
 |----------|--------|----------|------|
-| `METRICS_TOKEN` | valeur de développement (`metrics_…`) | metrics-gateway | Secret : jeton exigé par la passerelle (`Authorization: Bearer`), à reporter dans `prometheus.yml` sur la VM |
-| `LOKI_URL` | aucun | log-shipper | Adresse d'envoi des journaux : `http://<adresse-de-la-VM>:3100/loki/api/v1/push` |
+| `METRICS_TOKEN` | valeur de développement (`metrics_…`) | metrics-gateway | Secret : jeton exigé par la passerelle (`Authorization: Bearer`), à reporter dans `prometheus.yml` |
+| `LOKI_URL` | aucun (`.env.example` : `http://loki:3100/loki/api/v1/push`) | log-shipper | Adresse d'envoi des journaux : le Loki de la supervision, branché sur le réseau `novashop_monitoring-edge`. Loki installé hors de Docker : `http://<adresse-de-la-VM>:3100/loki/api/v1/push` |
 
-Générer un jeton : `python -c "import secrets; print('metrics_' + secrets.token_urlsafe(32))"`. Il ne doit
+Générer un jeton : `python3 -c "import secrets; print('metrics_' + secrets.token_urlsafe(32))"`. Il ne doit
 contenir ni `$` ni guillemet : il est recopié tel quel dans la configuration nginx de la passerelle. Changer le
-jeton : `.env`, puis `docker compose --profile monitoring up -d` et mise à jour de `prometheus.yml` sur la VM ;
-d'ici là, Prometheus reçoit des 401 et voit toutes les cibles `down`.
+jeton : `.env`, puis `docker compose --profile monitoring up -d` et mise à jour de `prometheus.yml` dans la
+supervision ; d'ici là, Prometheus reçoit des 401 et voit toutes les cibles `down`.
 
 Sans `LOKI_URL`, `log-shipper` démarre quand même mais ses envois échouent sur l'adresse
 `loki-url-non-definie.invalid` (visible dans `docker compose logs log-shipper`).
@@ -130,4 +133,4 @@ panier invité : changer `MAX_QUANTITY_PER_ITEM` seul ne suffit pas.
 `docker compose up -d` après avoir modifié `.env` : Compose recrée uniquement les conteneurs dont la
 configuration a changé. Ajouter `--profile ai`, `--profile tools` ou `--profile monitoring` pour les services de
 ces profils. Pour
-générer un secret : `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+générer un secret : `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.

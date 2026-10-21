@@ -1,6 +1,6 @@
 # Documents de l'assistant
 
-Tout ce qui est déposé ici est lu par l'assistant des opérateurs (port 8083 du PC Hôte) : il répond à
+Tout ce qui est déposé ici est lu par l'assistant des opérateurs (port 8083 de la VM) : il répond à
 partir de ces fichiers et cite ses sources. **Pas besoin de redémarrer** : un fichier ajouté, modifié ou
 supprimé est pris en compte en moins de 30 secondes.
 

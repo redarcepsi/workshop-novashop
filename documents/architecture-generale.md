@@ -1,12 +1,20 @@
 # Architecture générale de la plateforme
 
-Description de la stack RESILIENCE-ALPHA telle qu'elle existe dans le dépôt au 20/10/2026 : la plateforme
-de paiement fictive `payment-service`, la boutique marchande NovaShop et l'assistant documentaire des
-opérateurs. Sources : `docker-compose.yml`, `services/*/app/`, `frontend/`.
+Description de la stack RESILIENCE-ALPHA telle qu'elle existe dans le dépôt au 21/10/2026 : la plateforme
+de paiement fictive `payment-service`, la boutique marchande NovaShop, l'assistant documentaire des
+opérateurs et ce qui alimente la supervision. Sources : `docker-compose.yml`, `services/*/app/`, `frontend/`,
+`monitoring/`.
+
+## Hébergement
+
+Toute la stack tourne sur une **VM Linux** (Docker Engine et plugin compose) : le projet `novashop` de ce
+dépôt et, dans un compose distinct sur la même VM, la supervision (Prometheus, Loki, Grafana). Les deux projets
+se rejoignent par le réseau Docker `novashop_monitoring-edge`. Le site et l'assistant sont publiés sur l'adresse
+de la VM (`HTTP_BIND`), le jour J son adresse sur le point d'accès du consortium.
 
 ## Vue d'ensemble
 
-Le projet Docker Compose s'appelle `novashop`. Il regroupe trois ensembles :
+Le projet Docker Compose s'appelle `novashop`. Il regroupe quatre ensembles :
 
 - **La plateforme de paiement** (`payment-service`) : le système critique. Elle encaisse les paiements par
   carte pour le compte de marchands, rembourse, et journalise chaque changement d'état. C'est elle qui est
@@ -14,6 +22,8 @@ Le projet Docker Compose s'appelle `novashop`. Il regroupe trois ensembles :
 - **Le marchand NovaShop** : `frontend` (nginx + React), `auth-service` (comptes clients) et `shop-service`
   (catalogue, panier, commandes). Il produit des transactions réelles de bout en bout.
 - **L'assistant des opérateurs** (profil `ai`) : `ollama`, `ollama-models`, `rag-service`, `assistant-ui`.
+- **L'alimentation de la supervision** (profil `monitoring`) : `metrics-gateway`, `nginx-exporter`,
+  `log-shipper`, `docker-socket-proxy`. Ils fournissent métriques et journaux à Prometheus et Loki.
 
 `postgres` héberge les bases des trois services métier. `adminer` et `payment-console` (profil `tools`) sont
 des outils d'exploration optionnels.
@@ -95,6 +105,23 @@ Lancement : `docker compose --profile tools up -d`.
 
 L'assistant explique, il n'agit pas : aucun accès au socket Docker ni aux réseaux de la plateforme.
 
+### Supervision du profil monitoring : metrics-gateway, nginx-exporter, log-shipper, docker-socket-proxy
+
+- `metrics-gateway` (nginx 1.27) : point d'entrée unique de Prometheus. Relaie la route `/metrics` de chaque
+  API (`/metrics/auth`, `/metrics/shop`, `/metrics/payment`, `/metrics/rag`) et de `nginx-exporter`
+  (`/metrics/nginx`), seulement avec le jeton `METRICS_TOKEN`. Joint par Prometheus sur le réseau
+  `monitoring-edge` (`metrics-gateway:80`), publié sur `127.0.0.1:9464` seulement. Configuration :
+  `monitoring/metrics-gateway.conf.template`.
+- `nginx-exporter` (1.4.2) : convertit les compteurs de nginx (`stub_status`, port 8081 du frontend, non
+  publié) au format Prometheus.
+- `log-shipper` (Grafana Alloy v1.8.3) : envoie les journaux de tous les conteneurs `novashop` à Loki
+  (`LOKI_URL`), étiquetés par `service` et `level`. Configuration : `monitoring/alloy/config.alloy`.
+- `docker-socket-proxy` (0.3.0) : seul conteneur qui monte le socket Docker ; il n'en laisse passer que la
+  lecture des conteneurs et des réseaux, pour `log-shipper`.
+
+Prometheus, Loki et Grafana ne sont pas dans ce dépôt : ils tournent dans le compose de la supervision, sur la
+même VM. Détails : `metriques-journaux-et-signaux.md`.
+
 ## Technologies et versions
 
 | Composant | Technologie | Version |
@@ -109,6 +136,8 @@ L'assistant explique, il n'agit pas : aucun accès au socket Docker ni aux rése
 | RAG | langchain-core, langchain-ollama, langchain-chroma, chromadb, rank-bm25 | 1.6.6, 1.1.0, 1.1.0, 1.5.9, 0.2.2 |
 | Modèles | `ollama/ollama`, `gemma4:e4b`, `embeddinggemma` | 0.35.1 |
 | Chat | Streamlit (`services/assistant-ui`) | 1.65.0 |
+| Métriques des API | prometheus-fastapi-instrumentator, prometheus-client | 7.1.0, 0.23.1 |
+| Supervision | `nginx/nginx-prometheus-exporter`, `grafana/alloy`, `tecnativa/docker-socket-proxy` | 1.4.2, v1.8.3, 0.3.0 |
 
 ## Profils Docker Compose
 
@@ -117,9 +146,11 @@ L'assistant explique, il n'agit pas : aucun accès au socket Docker ni aux rése
 | (aucun) | `postgres`, `auth-service`, `shop-service`, `payment-service`, `frontend` | `docker compose up -d --build` |
 | `tools` | `adminer`, `payment-console` | `docker compose --profile tools up -d` |
 | `ai` | `ollama`, `ollama-models`, `rag-service`, `assistant-ui` | `docker compose --profile ai up -d` |
+| `monitoring` | `metrics-gateway`, `nginx-exporter`, `log-shipper`, `docker-socket-proxy` | `docker compose --profile monitoring up -d` |
 
 Avec une carte NVIDIA, ajouter `-f docker-compose.yml -f docker-compose.gpu.yml` (fichier qui donne
-`gpus: all` à `ollama`).
+`gpus: all` à `ollama`). Sur la VM, il faut alors lui attribuer le GPU et y installer le NVIDIA Container
+Toolkit ; sans GPU, Ollama tourne sur le processeur, nettement plus lentement.
 
 ## Volumes et fichiers montés
 
@@ -132,6 +163,10 @@ Avec une carte NVIDIA, ajouter `-f docker-compose.yml -f docker-compose.gpu.yml`
 | `./documents` (lecture seule) | rag-service | Documents lus par l'assistant |
 | `./README.md` (lecture seule) | rag-service | Indexé sous le nom `project/README.md` |
 | `./tools/payment-console.conf` (lecture seule) | payment-console | Configuration du proxy |
+| `./monitoring/metrics-gateway.conf.template` (lecture seule) | metrics-gateway | Routes `/metrics/*` et contrôle du jeton |
+| `./monitoring/alloy/config.alloy` (lecture seule) | log-shipper | Collecte et envoi des journaux |
+| `alloy-data` | log-shipper | Position de lecture de chaque journal (pas de renvoi de l'historique au redémarrage) |
+| `/var/run/docker.sock` (lecture seule) | docker-socket-proxy | API Docker, filtrée par le proxy |
 
 ## Ordre de démarrage
 
@@ -174,12 +209,14 @@ vérifient que la vivacité du processus : la route `/health` répond `{"status"
 base**. Un service peut donc être `healthy` alors que sa base est injoignable. Voir
 `metriques-journaux-et-signaux.md`.
 
-`frontend`, `adminer` et `payment-console` n'ont pas de healthcheck dans `docker-compose.yml`.
+`frontend`, `adminer`, `payment-console` et les conteneurs du profil `monitoring` n'ont pas de healthcheck dans
+`docker-compose.yml`.
 
 ## Redémarrage automatique
 
 - `restart: unless-stopped` : `postgres`, `auth-service`, `shop-service`, `payment-service`, `frontend`,
-  `ollama`, `rag-service`, `assistant-ui`. Docker relance le conteneur si son processus s'arrête.
+  `ollama`, `rag-service`, `assistant-ui`, `metrics-gateway`, `nginx-exporter`, `log-shipper`,
+  `docker-socket-proxy`. Docker relance le conteneur si son processus s'arrête.
 - `restart: "no"` : `ollama-models` (tâche ponctuelle).
 - Pas de politique : `adminer`, `payment-console`.
 

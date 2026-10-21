@@ -1,4 +1,4 @@
-// Journaux des conteneurs NovaShop → Loki de la VM de supervision (LOKI_URL), profil "monitoring".
+// Journaux des conteneurs NovaShop → Loki de la supervision (LOKI_URL), profil "monitoring".
 // Alloy lit l'API Docker à travers docker-socket-proxy, limité à la lecture des conteneurs et de leurs journaux.
 //
 // Étiquettes Loki : service (nom du service compose), container, stream (stdout ou stderr) et, pour les services
@@ -56,10 +56,10 @@ loki.process "novashop" {
 		values = {level = ""}
 	}
 
-	forward_to = [loki.write.vm.receiver]
+	forward_to = [loki.write.supervision.receiver]
 }
 
-loki.write "vm" {
+loki.write "supervision" {
 	endpoint {
 		// Sans LOKI_URL, les envois échouent sur cette adresse réservée : le journal d'Alloy dit ce qui manque
 		url = coalesce(sys.env("LOKI_URL"), "http://loki-url-non-definie.invalid:3100/loki/api/v1/push")

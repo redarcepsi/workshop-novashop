@@ -57,14 +57,14 @@ flowchart LR
 | `ollama` (IA)     | Modèles locaux `gemma4:e4b` et `embeddinggemma` (`--profile ai`)  | non                        | –            |
 | `rag-service` (IA)| Assistant documentaire LangChain : index Chroma de `documents/`   | non                        | volume `rag-index` |
 | `assistant-ui` (IA) | Interface de chat Streamlit de l'assistant (`--profile ai`)     | `HTTP_BIND:8083`           | –            |
-| `metrics-gateway` (sup.) | Passerelle des métriques pour Prometheus, à jeton (`--profile monitoring`) | `METRICS_BIND:9464` | – |
+| `metrics-gateway` (sup.) | Passerelle des métriques pour Prometheus, à jeton (`--profile monitoring`) | `127.0.0.1:9464` (`METRICS_BIND`) | – |
 | `nginx-exporter` (sup.) | Compteurs nginx du frontend au format Prometheus (`--profile monitoring`) | non              | –            |
 | `log-shipper` (sup.) | Grafana Alloy : journaux des conteneurs vers Loki (`--profile monitoring`) | non             | volume `alloy-data` |
 | `docker-socket-proxy` (sup.) | API Docker en lecture seule pour `log-shipper` (`--profile monitoring`) | non       | –            |
 
 ### Réseaux et exposition
 
-Seules la passerelle nginx, l'interface de l'assistant (profil `ai`) et la passerelle des métriques (profil `monitoring`) sont publiées sur le réseau. Chaque service n'est branché que sur les réseaux dont il a besoin :
+Seules la passerelle nginx et l'interface de l'assistant (profil `ai`) sont publiées sur le réseau ; la passerelle des métriques (profil `monitoring`) ne l'est que sur `127.0.0.1`. Chaque service n'est branché que sur les réseaux dont il a besoin :
 
 | Réseau       | Membres                                   | Type                 |
 |--------------|-------------------------------------------|----------------------|
@@ -77,20 +77,21 @@ Seules la passerelle nginx, l'interface de l'assistant (profil `ai`) et la passe
 | `ai`         | ollama, rag-service, assistant-ui (+ metrics-gateway) | `internal`, profil `ai` |
 | `ai-egress`  | ollama (téléchargement des modèles)       | profil `ai`          |
 | `assistant-edge` | assistant-ui (porte le port publié)   | profil `ai`          |
-| `monitoring-edge` | metrics-gateway (port publié), log-shipper (envoi vers Loki) | profil `monitoring` |
+| `monitoring-edge` | metrics-gateway, log-shipper (+ Prometheus et Loki de la supervision) | profil `monitoring` |
 | `docker-api` | log-shipper, docker-socket-proxy          | `internal`, profil `monitoring` |
 
-Conséquences, vérifiées sur la stack :
+Conséquences, vérifiées sur la stack (sous Docker Desktop, avant le passage sur la VM) :
 
-- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seuls les ports 8080 (site), 8083
-  (assistant, profil `ai`) et 9464 (métriques, profil `monitoring`, jeton exigé) répondent : la base et les API ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
+- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seuls les ports 8080 (site) et 8083
+  (assistant, profil `ai`) répondent : la base et les API ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
 - `payment-service` n'est joignable que par `shop-service` (ni nginx ni auth-service ne le voient) et, si on
   la lance, par sa console d'exploration sur 127.0.0.1 ;
 - un réseau `internal` n'a pas de route vers l'extérieur : les API et la base **ne peuvent rien envoyer
   hors de Docker** (utile face à une tentative d'exfiltration). Seul nginx peut sortir ;
-- le jour J, `HTTP_BIND=192.168.137.1` dans `.env` publie le site **uniquement sur le point d'accès** du consortium,
-  pas sur le Wi-Fi du campus. Le point d'accès doit alors être actif avant `docker compose up`, et le site
-  s'ouvre sur http://192.168.137.1:8080 (plus sur `localhost`). L'assistant suit : http://192.168.137.1:8083.
+- le jour J, `HTTP_BIND=<adresse-de-la-VM>` dans `.env` (son adresse sur le point d'accès du consortium) publie
+  le site **uniquement sur cette interface** de la VM. Ne pas reprendre `192.168.137.1` : c'est l'adresse du PC
+  Hôte Windows, absente de la VM, et `docker compose up` échouerait. Le site s'ouvre alors sur
+  `http://<adresse-de-la-VM>:8080` (plus sur `localhost`), l'assistant sur le port 8083 de la même adresse.
 
 ### Choix de conception
 
@@ -126,10 +127,13 @@ Conséquences, vérifiées sur la stack :
 
 ## Démarrage
 
-Prérequis : Docker Desktop.
+Toute la plateforme tourne sur une **VM Linux** : NovaShop, l'assistant et la supervision (Prometheus, Loki,
+Grafana, dans leur propre compose). Prérequis sur la VM : Docker Engine et le plugin compose
+(`docker compose version`) ; avec l'assistant (profil `ai`) sur processeur, 16 Go de RAM et 30 Go de disque
+libres sont conseillés. Docker Desktop convient pour développer sur un poste Windows.
 
 ```bash
-cp .env.example .env          # optionnel : toutes les variables ont une valeur par défaut
+cp .env.example .env          # toutes les variables ont une valeur par défaut ; le jour J : HTTP_BIND et les secrets
 docker compose up -d --build
 ```
 
@@ -184,7 +188,7 @@ Livraison : 4,90 €, offerte dès 50 € (configurable via `SHIPPING_COST` et `
 docker compose ps                      # état et santé des conteneurs
 docker compose logs -f shop-service    # logs d'un service
 docker compose --profile tools up -d   # + Adminer (http://127.0.0.1:8081) et console paiement (http://127.0.0.1:8082)
-docker compose --profile monitoring up -d   # + métriques et journaux pour la VM de supervision (voir plus bas)
+docker compose --profile monitoring up -d   # + métriques et journaux pour la supervision (voir plus bas)
 docker compose down                    # arrêter
 docker compose down -v                 # arrêter ET supprimer les données (le catalogue sera recréé)
 ```
@@ -219,14 +223,18 @@ docker compose --profile ai up -d                                             # 
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ai up -d   # avec une carte NVIDIA
 ```
 
+Une VM n'a en général pas de GPU : Ollama tourne alors sur le processeur, et les réponses sont nettement plus
+lentes. `LLM_THINK=false` les accélère. Pour un GPU, il faut l'attribuer à la VM et y installer le pilote NVIDIA
+et le NVIDIA Container Toolkit.
+
 - Premier lancement : `ollama-models` télécharge les modèles (environ 7 Go), `rag-service` démarre ensuite.
   Les lancements suivants n'ont plus besoin d'Internet (testé : réseaux Internet coupés, réponses sourcées).
   Hors ligne, lancer sans `--build` et ne jamais faire `down -v`, qui supprime les modèles téléchargés.
-- Ouvrir http://localhost:8083 sur le PC Hôte, ou le port 8083 du PC Hôte depuis un autre poste du réseau
-  (http://192.168.137.1:8083 le jour J) : une conversation à la manière de Claude, sans historique (recharger
-  la page repart de zéro). Pendant une réponse, le bouton d'envoi devient un bouton stop.
+- Ouvrir http://localhost:8083 sur la VM, ou `http://<adresse-de-la-VM>:8083` depuis un autre poste du réseau :
+  une conversation à la manière de Claude, sans historique (recharger la page repart de zéro). Pendant une
+  réponse, le bouton d'envoi devient un bouton stop.
 - L'interface est publiée comme le site et **sans compte** : tout poste du réseau peut interroger l'assistant,
-  donc lire ce que contient `documents/`. `ASSISTANT_BIND=127.0.0.1` dans `.env` la réserve au PC Hôte.
+  donc lire ce que contient `documents/`. `ASSISTANT_BIND=127.0.0.1` dans `.env` la réserve à la VM elle-même.
 - **Joindre un fichier à une question** (bouton « + » : journal, rapport d'incident, procédure ; texte, PDF,
   Word, 10 Mo au plus) : il ne sert qu'à la conversation en cours, sans être indexé ni enregistré.
 - Venant d'une version avec Open WebUI : `docker compose --profile ai up -d --build --remove-orphans` retire son
@@ -240,7 +248,7 @@ Choix et garde-fous :
 | Sujet | Choix |
 |-------|-------|
 | Modèle de langage | `gemma4:e4b`, 7,5 Md de paramètres (limite du sujet : 8), sur GPU si disponible |
-| Mode réflexion | Activé (`LLM_THINK`) : sans lui, le modèle commet des contresens sur les négations (« la base n'est *pas* joignable »). Environ 10 s de plus, réflexion affichée en direct dans un bloc repliable |
+| Mode réflexion | Activé (`LLM_THINK`) : sans lui, le modèle commet des contresens sur les négations (« la base n'est *pas* joignable »). Environ 10 s de plus sur GPU, bien davantage sur processeur ; réflexion affichée en direct dans un bloc repliable |
 | Embeddings | `embeddinggemma` avec ses préfixes de tâche (`task: search result \| query:` / `title: <fichier › section> \| text:`) |
 | Découpage | Markdown découpé par titres puis en extraits d'environ 1 000 caractères (recouvrement 150) ; PDF par page |
 | Recherche | **Hybride** : sémantique (Chroma) + mots-clés (BM25, identifiants comme `payment-db` ou `503` gardés exacts), fusionnées par rang (RRF) ; 5 extraits ; une relance courte est complétée par la question précédente |
@@ -252,33 +260,60 @@ Choix et garde-fous :
 
 ## Supervision (Prometheus, Loki, Grafana)
 
-Prometheus, Loki et Grafana tournent sur une **VM de supervision** séparée. Le profil `monitoring` leur fournit
-les métriques et les journaux de la plateforme, sans publier les API (flèche = qui appelle qui) :
+Prometheus, Loki et Grafana tournent sur **la même VM** que la plateforme, dans leur propre compose. Le profil
+`monitoring` leur fournit les métriques et les journaux de la plateforme, sans publier les API ni les métriques
+sur le réseau (flèche = qui appelle qui) :
 
 ```mermaid
 flowchart LR
-    subgraph hote["PC Hôte (Docker)"]
-      G[metrics-gateway<br/>:9464, jeton] -->|/metrics| A[auth-service] & S[shop-service] & P[payment-service] & R[rag-service]
-      G --> X[nginx-exporter] -->|"stub_status :8081"| F[frontend]
-      L[log-shipper<br/>Grafana Alloy] --> D[docker-socket-proxy<br/>lecture seule]
+    subgraph vm["VM Linux (Docker Engine)"]
+      subgraph novashop["compose NovaShop"]
+        G[metrics-gateway<br/>jeton] -->|/metrics| A[auth-service] & S[shop-service] & P[payment-service] & R[rag-service]
+        G --> X[nginx-exporter] -->|"stub_status :8081"| F[frontend]
+        L[log-shipper<br/>Grafana Alloy] --> D[docker-socket-proxy<br/>lecture seule]
+      end
+      subgraph sup["compose de la supervision"]
+        PR[Prometheus]
+        LO[Loki]
+        GR[Grafana] --> PR & LO
+      end
+      PR -->|"metrics-gateway:80<br/>Bearer METRICS_TOKEN"| G
+      L -->|"LOKI_URL (loki:3100)"| LO
     end
-    subgraph vm["VM de supervision"]
-      PR[Prometheus]
-      LO[Loki]
-      GR[Grafana] --> PR & LO
-    end
-    PR -->|"Bearer METRICS_TOKEN"| G
-    L -->|LOKI_URL| LO
 ```
 
+Les deux compose se rejoignent par le réseau Docker `novashop_monitoring-edge`, créé par le profil
+`monitoring` : Prometheus et Loki s'y branchent comme réseau externe et joignent les conteneurs par leur nom.
+
 ```bash
-# Dans .env : METRICS_TOKEN (jeton fort) et LOKI_URL=http://<adresse-de-la-VM>:3100/loki/api/v1/push
-docker compose --profile monitoring up -d
+# 1. NovaShop. Dans .env : METRICS_TOKEN (jeton fort) et LOKI_URL=http://loki:3100/loki/api/v1/push
+docker compose --profile monitoring up -d      # crée le réseau novashop_monitoring-edge
+# 2. Supervision : brancher prometheus et loki sur ce réseau (ci-dessous), puis la lancer
+```
+
+```yaml
+# Dans le compose de la supervision (noms des services à adapter)
+services:
+  prometheus:
+    networks: [default, novashop]
+  loki:
+    networks: [default, novashop]
+
+networks:
+  novashop:
+    name: novashop_monitoring-edge
+    external: true
 ```
 
 - **Métriques** : chaque API expose `/metrics` hors de son préfixe `/api/<service>` : la passerelle du site ne
-  la relaie jamais. Seule `metrics-gateway` y accède, et ne répond qu'avec le jeton (401 sinon). Côté VM, copier
-  [`monitoring/prometheus-scrape.example.yml`](monitoring/prometheus-scrape.example.yml) dans `prometheus.yml`.
+  la relaie jamais. Seule `metrics-gateway` y accède, et ne répond qu'avec le jeton (401 sinon). Copier
+  [`monitoring/prometheus-scrape.example.yml`](monitoring/prometheus-scrape.example.yml) dans `prometheus.yml`
+  (cible `metrics-gateway:80`, jeton à reporter), en dehors du dépôt : le jeton n'a pas sa place dans git.
+- **Port 9464** : publié sur `127.0.0.1` seulement (`METRICS_BIND`), pour un test avec `curl` sur la VM ou pour
+  un Prometheus installé hors de Docker (cible `127.0.0.1:9464`). Un Loki hors de Docker se joint par
+  `LOKI_URL=http://<adresse-de-la-VM>:3100/loki/api/v1/push`.
+- **Loki** doit accepter les envois sans authentification (`auth_enabled: false`, réglage par défaut de l'image).
+  **Grafana** : sources `http://prometheus:9090` et `http://loki:3100`.
 - **Contenu** : requêtes, codes HTTP et durées par route des 4 API ; paiements par statut et motif de refus,
   montant encaissé ; pannes et lenteurs de `payment-service` vues par la boutique ; compensations à
   régulariser ; durée et échecs des réponses de l'assistant ; connexions et requêtes de nginx.
@@ -287,7 +322,8 @@ docker compose --profile monitoring up -d
   `docker-socket-proxy`, qui refuse toute écriture.
 - **Isolation** : la passerelle rejoint les réseaux existants (comme `payment-console`) plutôt qu'un réseau
   commun à tous les services, qui permettrait à `auth-service` de joindre `payment-service`. Pas de filtrage par
-  IP : Docker Desktop masque l'adresse source, d'où le jeton.
+  IP : les adresses des conteneurs changent à chaque recréation. Le jeton protège la passerelle des autres
+  conteneurs qui la voient (`frontend`, `payment`, `ai`, `monitoring-edge`) et des processus de la VM.
 - Détail des métriques, requêtes PromQL et LogQL prêtes pour Grafana :
   [`documents/metriques-journaux-et-signaux.md`](documents/metriques-journaux-et-signaux.md).
 - Arrêter la supervision seule :
@@ -395,10 +431,10 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 │   └── assistant-ui/                   # interface de chat Streamlit (app.py, style.css, .streamlit/config.toml)
 ├── documents/                          # fichiers lus par l'assistant (voir documents/_LISEZ-MOI.md)
 ├── docker-compose.gpu.yml              # option : GPU NVIDIA pour Ollama
-├── monitoring/                         # profil "monitoring" (VM de supervision)
+├── monitoring/                         # profil "monitoring" (alimente la supervision)
 │   ├── metrics-gateway.conf.template   # passerelle des métriques : /metrics/<service>, jeton METRICS_TOKEN
 │   ├── alloy/config.alloy              # log-shipper : journaux des conteneurs → Loki
-│   └── prometheus-scrape.example.yml   # à copier dans prometheus.yml sur la VM
+│   └── prometheus-scrape.example.yml   # à copier dans le prometheus.yml de la supervision
 └── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx
     ├── nginx.conf                      # SPA + reverse proxy /api/* ; stub_status sur le port 8081 (non publié)
     └── src/{pages,components,context,utils}

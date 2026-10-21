@@ -18,8 +18,8 @@ name: novashop
 # Un réseau "internal" n'a pas de route vers l'extérieur : seul nginx peut sortir du réseau Docker.
 #
 # Ni la base ni les API ne sont publiées sur l'hôte : on ne peut atteindre que la passerelle nginx,
-# sur l'adresse HTTP_BIND (le jour J : 192.168.137.1, le point d'accès du consortium, pour ne pas
-# l'exposer aussi sur le Wi-Fi du campus). payment-service n'est joignable que par shop-service
+# sur l'adresse HTTP_BIND (le jour J : l'adresse de la VM sur le point d'accès du consortium, pour ne pas
+# l'exposer sur ses autres interfaces). payment-service n'est joignable que par shop-service
 # (et, avec le profil "tools", par sa console d'exploration publiée sur 127.0.0.1).
 # ---------------------------------------------------------------------------
 
@@ -163,7 +163,7 @@ services:
     environment:
       # Garde les modèles chargés : pas de temps de chargement à la première question de la démo
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
-      # Une requête à la fois : la mémoire du PC Hôte est partagée avec toute la stack
+      # Une requête à la fois : la mémoire de la VM est partagée avec toute la stack
       OLLAMA_NUM_PARALLEL: 1
     volumes:
       - ollama-models:/root/.ollama
@@ -219,7 +219,7 @@ services:
   # Interface de chat Streamlit : une conversation, des fichiers joints, rien d'autre. Sans compte ni
   # historique enregistré (rien sur disque). Publiée comme le site, sur HTTP_BIND (le jour J, le seul point
   # d'accès du consortium) : tout poste de ce réseau peut l'interroger. ASSISTANT_BIND=127.0.0.1 la réserve
-  # au PC Hôte. Elle n'atteint que rag-service, avec la clé partagée. Ni Ollama, ni web, ni exécution de code
+  # à la VM. Elle n'atteint que rag-service, avec la clé partagée. Ni Ollama, ni web, ni exécution de code
   assistant-ui:
     build: ./services/assistant-ui
     profiles: ["ai"]
@@ -236,19 +236,20 @@ services:
       - assistant-edge
 
   # ---------------------------------------------------------------------------
-  # Supervision, profil "monitoring" : alimente Prometheus, Loki et Grafana, installés sur la VM de supervision.
-  #   docker compose --profile monitoring up -d        → port 9464, publié sur METRICS_BIND (par défaut HTTP_BIND)
+  # Supervision, profil "monitoring" : alimente Prometheus, Loki et Grafana, lancés dans leur propre compose sur la
+  # même VM et branchés sur le réseau monitoring-edge (réseau externe novashop_monitoring-edge de leur côté).
+  #   docker compose --profile monitoring up -d        → port 9464 sur METRICS_BIND (par défaut 127.0.0.1)
   #
   #   metrics-gateway      ── point d'entrée unique des métriques, protégé par le jeton METRICS_TOKEN :
   #                           /metrics/auth, /metrics/shop, /metrics/payment, /metrics/rag, /metrics/nginx
   #   nginx-exporter       ── convertit les compteurs de nginx (stub_status, port 8081 du frontend) pour Prometheus
-  #   log-shipper          ── Grafana Alloy : envoie les journaux de tous les conteneurs au Loki de la VM (LOKI_URL)
+  #   log-shipper          ── Grafana Alloy : envoie les journaux de tous les conteneurs à Loki (LOKI_URL)
   #   docker-socket-proxy  ── API Docker en lecture seule pour log-shipper : liste et journaux des conteneurs
   #
   # Chaque API expose /metrics hors de son préfixe /api/<service> : nginx ne la relaie pas, seule la passerelle
   # l'atteint. Celle-ci rejoint les réseaux existants, comme payment-console, plutôt qu'un réseau commun à tous les
   # services qui permettrait à chacun de joindre les autres (auth-service → payment-service…).
-  # Côté VM : monitoring/prometheus-scrape.example.yml
+  # Côté supervision : monitoring/prometheus-scrape.example.yml
   # ---------------------------------------------------------------------------
   metrics-gateway:
     image: nginx:1.27-alpine
@@ -259,8 +260,9 @@ services:
       NGINX_ENVSUBST_FILTER: ^METRICS_
     volumes:
       - ./monitoring/metrics-gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
+    # Prometheus est sur la même VM : le port ne sert qu'aux tests (curl) et à un Prometheus installé hors de Docker
     ports:
-      - "${METRICS_BIND:-${HTTP_BIND:-0.0.0.0}}:${METRICS_PORT:-9464}:80"
+      - "${METRICS_BIND:-127.0.0.1}:${METRICS_PORT:-9464}:80"
     networks:
       - frontend          # auth-service, shop-service, nginx-exporter
       - payment           # payment-service
@@ -296,7 +298,7 @@ services:
     restart: unless-stopped
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     environment:
-      # Ex. http://192.168.137.20:3100/loki/api/v1/push (adresse de la VM de supervision)
+      # Ex. http://loki:3100/loki/api/v1/push (Loki de la supervision, branché sur monitoring-edge)
       LOKI_URL: ${LOKI_URL:-}
     volumes:
       - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
@@ -325,7 +327,9 @@ networks:
     internal: true
   ai-egress:
   assistant-edge:
-  # Supervision : metrics-gateway y publie son port et log-shipper en sort vers la VM ; l'API Docker reste interne
+  # Supervision : Prometheus et Loki (compose de la supervision) s'y branchent sous le nom novashop_monitoring-edge
+  # pour joindre metrics-gateway et recevoir les journaux de log-shipper. Non internal : il porte le port 9464 et
+  # laisse log-shipper joindre un Loki installé hors de Docker. L'API Docker reste interne
   monitoring-edge:
   docker-api:
     internal: true

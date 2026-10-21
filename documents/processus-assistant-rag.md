@@ -27,8 +27,8 @@ Un fil d'exécution de `rag-service` scrute toutes les 30 s (`SYNC_INTERVAL_SECO
    par `embeddinggemma` puis écrit dans Chroma (`index action=added` ou `updated`).
 4. **Index lexical** : l'index BM25 est reconstruit en mémoire si quelque chose a changé.
 
-Aucun redémarrage n'est nécessaire. Docker Desktop ne relaie pas les notifications de fichiers de Windows,
-d'où la scrutation périodique.
+Aucun redémarrage n'est nécessaire. La scrutation périodique marche partout, sur la VM Linux comme sous
+Docker Desktop, qui ne relaie pas les notifications de fichiers de Windows.
 
 ## Fichiers lus et ignorés
 
@@ -112,8 +112,8 @@ rapport d'incident, une procédure. Différences avec un dépôt dans `documents
 ## Génération de la réponse
 
 - Modèle : `gemma4:e4b` (7,5 Md de paramètres), température 0,2, contexte 8 192 jetons.
-- Mode réflexion (`LLM_THINK=true`) : environ 10 s de plus, mais moins de contresens sur les négations et les
-  tableaux. La réflexion s'affiche en direct dans un bloc d'`assistant-ui`, replié dès que la réponse
+- Mode réflexion (`LLM_THINK=true`) : environ 10 s de plus sur GPU (bien davantage sur le processeur d'une VM
+  sans GPU), mais moins de contresens sur les négations et les tableaux. La réflexion s'affiche en direct dans un bloc d'`assistant-ui`, replié dès que la réponse
   commence (« Réflexion (12 s) »).
 - Historique : les 6 derniers messages, 2 000 caractères chacun au plus, sans les blocs de réflexion ni les
   listes de sources.
@@ -124,8 +124,8 @@ rapport d'incident, une procédure. Différences avec un dépôt dans `documents
 
 ## Interface de chat assistant-ui
 
-Application Streamlit publiée comme le site, sur le port 8083 (http://localhost:8083 sur le PC Hôte,
-http://192.168.137.1:8083 le jour J), à la manière de Claude :
+Application Streamlit publiée comme le site, sur le port 8083 (http://localhost:8083 sur la VM,
+`http://<adresse-de-la-VM>:8083` depuis le réseau), à la manière de Claude :
 
 - une seule conversation, sans compte, sans historique ni choix de modèle : recharger la page repart de zéro ;
 - une zone de saisie avec un bouton « + » pour joindre des fichiers ; un fichier joint sans question

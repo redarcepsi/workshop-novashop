@@ -8,8 +8,8 @@ et de la détection d'anomalies. État au 21/10/2026, vérifié sur la stack en 
 
 | Source | Où la lire | Contenu |
 |--------|-----------|---------|
-| Métriques Prometheus | Prometheus de la VM de supervision, via `metrics-gateway` (profil `monitoring`) | Requêtes, codes HTTP et durées par route ; paiements, pannes du paiement, assistant ; connexions nginx |
-| Journaux dans Loki | Loki de la VM de supervision, envoyés par `log-shipper` (profil `monitoring`) | Les journaux de tous les conteneurs, étiquetés par service |
+| Métriques Prometheus | Prometheus de la supervision, via `metrics-gateway` (profil `monitoring`) | Requêtes, codes HTTP et durées par route ; paiements, pannes du paiement, assistant ; connexions nginx |
+| Journaux dans Loki | Loki de la supervision, envoyés par `log-shipper` (profil `monitoring`) | Les journaux de tous les conteneurs, étiquetés par service |
 | Journal d'accès nginx | `docker compose logs frontend` | Chaque requête reçue sur le port 8080 |
 | Journaux d'accès uvicorn | `docker compose logs <service>` | Chaque requête reçue par une API |
 | Journaux métier | `docker compose logs payment-service` (et les autres) | Opérations de paiement, erreurs, indexation |
@@ -18,10 +18,10 @@ et de la détection d'anomalies. État au 21/10/2026, vérifié sur la stack en 
 | API de payment-service | `payment-console`, `GET /transactions` | Transactions filtrées par statut |
 | API de rag-service | `GET /api/rag/documents` | État de l'index de l'assistant |
 
-## Supervision par la VM : profil monitoring
+## Supervision sur la VM : profil monitoring
 
-Prometheus, Loki et Grafana tournent sur une VM de supervision séparée du PC Hôte. Le profil `monitoring` de
-`docker-compose.yml` leur fournit les données :
+Prometheus, Loki et Grafana tournent sur la même VM que la plateforme, dans leur propre compose. Le profil
+`monitoring` de `docker-compose.yml` leur fournit les données :
 
 ```bash
 docker compose --profile monitoring up -d     # avec LOKI_URL et METRICS_TOKEN renseignés dans .env
@@ -29,25 +29,32 @@ docker compose --profile monitoring up -d     # avec LOKI_URL et METRICS_TOKEN r
 
 | Conteneur | Rôle |
 |-----------|------|
-| `metrics-gateway` | nginx publié sur le port 9464 (`METRICS_BIND`, par défaut `HTTP_BIND`) : relaie la route `/metrics` de chaque service, seulement avec le jeton `METRICS_TOKEN` |
+| `metrics-gateway` | nginx, joint par Prometheus sur le réseau `monitoring-edge` (`metrics-gateway:80`) et publié sur `127.0.0.1:9464` seulement (`METRICS_BIND`) : relaie la route `/metrics` de chaque service, seulement avec le jeton `METRICS_TOKEN` |
 | `nginx-exporter` | Lit les compteurs de nginx (`stub_status`, port 8081 du frontend, non publié) et les convertit au format Prometheus |
-| `log-shipper` | Grafana Alloy : envoie les journaux de tous les conteneurs NovaShop au Loki de la VM (`LOKI_URL`) |
+| `log-shipper` | Grafana Alloy : envoie les journaux de tous les conteneurs NovaShop au Loki de la supervision (`LOKI_URL`) |
 | `docker-socket-proxy` | Donne à `log-shipper` un accès en lecture seule à l'API Docker (conteneurs, réseaux, journaux) |
 
-Configuration côté VM : copier `monitoring/prometheus-scrape.example.yml` dans `prometheus.yml` (adresse du PC
-Hôte et jeton à adapter). Loki n'a rien à configurer : il doit seulement accepter les envois sur le port 3100
-depuis le PC Hôte.
+Configuration de la supervision :
 
-Vérification depuis la VM :
+- Brancher les conteneurs Prometheus et Loki sur le réseau externe `novashop_monitoring-edge` (créé par le profil
+  `monitoring`, à lancer avant la supervision). Exemple dans le README, section Supervision.
+- Copier `monitoring/prometheus-scrape.example.yml` dans `prometheus.yml` (cible `metrics-gateway:80`, jeton à
+  reporter). Prometheus installé hors de Docker : cible `127.0.0.1:9464`.
+- Loki doit accepter les envois sans authentification (`auth_enabled: false`, réglage par défaut de l'image).
+  Dans `.env` : `LOKI_URL=http://loki:3100/loki/api/v1/push` (`loki` = nom du service Loki dans le compose de la
+  supervision). Loki installé hors de Docker : `http://<adresse-de-la-VM>:3100/loki/api/v1/push`.
+- Grafana : sources de données `http://prometheus:9090` et `http://loki:3100`.
+
+Vérification sur la VM :
 
 ```bash
-curl -H "Authorization: Bearer <METRICS_TOKEN>" http://192.168.137.1:9464/metrics/payment
+curl -H "Authorization: Bearer <METRICS_TOKEN>" http://127.0.0.1:9464/metrics/payment
 ```
 
 Sans le jeton, ou avec un mauvais jeton, la passerelle répond 401. Elle ne journalise que ces refus et les
 échecs (502 si un service ne répond pas) : une rafale de 401 dans `docker compose logs metrics-gateway` signale
-quelqu'un qui cherche le jeton. Pas de filtrage par adresse IP, puisque Docker Desktop masque l'adresse source
-(voir plus bas).
+quelqu'un qui cherche le jeton. Pas de filtrage par adresse IP : celle du conteneur Prometheus change à chaque
+recréation, et le jeton protège aussi des autres conteneurs qui voient la passerelle.
 
 ## Métriques Prometheus
 
@@ -188,10 +195,14 @@ journaux sans modifier `frontend/nginx.conf`.
 
 ## Adresse source dans les journaux
 
-Sur le PC Hôte, sous Docker Desktop, les requêtes faites depuis le navigateur local apparaissent avec
-l'adresse `172.21.0.1` (passerelle du réseau Docker), pas avec l'adresse réelle du client. Les API
-voient la même adresse, transmise par nginx (`172.21.0.1:0` dans les journaux uvicorn). À vérifier depuis le
-PC Attaquant avant de fonder une détection ou un blocage sur l'adresse IP source.
+Sous Docker Desktop (sur le PC Hôte, avant le passage sur la VM), les requêtes faites depuis le navigateur local
+apparaissaient avec l'adresse `172.21.0.1` (passerelle du réseau Docker), pas avec l'adresse réelle du client.
+Les API voyaient la même adresse, transmise par nginx (`172.21.0.1:0` dans les journaux uvicorn).
+
+Sur la VM (Docker Engine sous Linux), les connexions venues du réseau sont redirigées par le noyau et gardent en
+principe l'adresse réelle du client ; seules les requêtes faites depuis la VM elle-même portent l'adresse de la
+passerelle Docker. À vérifier depuis le PC Attaquant avant de fonder une détection ou un blocage sur l'adresse IP
+source.
 
 ## Journaux d'accès uvicorn
 
@@ -374,6 +385,6 @@ arrêté.
 - Sondes de santé sans test de la base : `up` et les sondes restent au vert quand `postgres` est arrêté.
 - Pas de métriques de `postgres` ni des conteneurs eux-mêmes (processeur, mémoire par conteneur) : il faudrait
   ajouter `postgres_exporter` et cAdvisor.
-- Adresse source masquée par Docker Desktop (à vérifier depuis le PC Attaquant).
+- Adresse source : masquée sous Docker Desktop, en principe réelle sur la VM (à vérifier depuis le PC Attaquant).
 - Sans le profil `monitoring`, journaux conservés par Docker seulement (pilote par défaut) : perdus si le
   conteneur est supprimé. Avec le profil, ils sont aussi dans Loki.

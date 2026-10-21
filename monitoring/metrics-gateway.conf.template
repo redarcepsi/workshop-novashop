@@ -1,4 +1,5 @@
-# Passerelle des métriques (profil "monitoring") : le seul point d'entrée du Prometheus de la VM de supervision.
+# Passerelle des métriques (profil "monitoring") : le seul point d'entrée de Prometheus (compose de la supervision,
+# sur la même VM, branché sur le réseau monitoring-edge).
 #
 #   /metrics/auth      → auth-service:8000/metrics
 #   /metrics/shop      → shop-service:8000/metrics
@@ -8,7 +9,8 @@
 #
 # Les API restent non publiées : la passerelle ne relaie que leur route /metrics, et seulement avec le jeton
 # METRICS_TOKEN (en-tête "Authorization: Bearer <jeton>", option authorization de Prometheus). Pas de filtrage par
-# adresse IP : sous Docker Desktop, toutes les requêtes arrivent avec l'adresse de la passerelle Docker.
+# adresse IP : celle de Prometheus change à chaque recréation de son conteneur, et le jeton protège aussi des autres
+# conteneurs des réseaux frontend, payment, ai et monitoring-edge, qui voient la passerelle.
 #
 # Fichier modèle : au démarrage, l'image nginx remplace ${METRICS_TOKEN} par sa valeur. NGINX_ENVSUBST_FILTER limite
 # la substitution aux variables METRICS_* : les variables nginx ($http_authorization, $1…) restent intactes.

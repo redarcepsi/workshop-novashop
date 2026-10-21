@@ -6,13 +6,17 @@ SOPS, qui ne sont pas encore dans le dépôt.
 
 ## Exposition réseau minimale
 
-- Un seul port métier publié : 8080 (`frontend`). Le jour J, `HTTP_BIND=192.168.137.1` le limite au point
-  d'accès du consortium.
+- Un seul port métier publié : 8080 (`frontend`). Le jour J, `HTTP_BIND` (adresse de la VM sur le point
+  d'accès du consortium) le limite à ce réseau.
 - `payment-service`, `auth-service`, `shop-service`, `rag-service`, `ollama` et `postgres` ne sont pas
   publiés.
 - Outils (`adminer` 8081, `payment-console` 8082) liés à `127.0.0.1` : invisibles depuis le réseau.
 - Assistant (`assistant-ui` 8083) publié comme le site, sur `HTTP_BIND` : le jour J, sur le seul point
   d'accès du consortium. Il n'a aucun droit sur le système et ne joint que `rag-service`.
+- Passerelle des métriques (`metrics-gateway` 9464, profil `monitoring`) liée à `127.0.0.1` et protégée par le
+  jeton `METRICS_TOKEN` : Prometheus, sur la même VM, la joint par le réseau Docker `monitoring-edge`.
+- Sur la VM, `ufw` ne filtre pas les ports publiés par Docker : seules les adresses d'écoute (`*_BIND`)
+  limitent leur exposition.
 - Réseaux `internal` pour les API et la base : pas de route vers l'extérieur, donc pas d'exfiltration directe
   depuis un service compromis.
 - `payment-service` n'est joignable que depuis `shop-service` : un attaquant doit passer par la boutique.
@@ -75,7 +79,8 @@ SOPS, qui ne sont pas encore dans le dépôt.
 - `HEALTHCHECK` dans chaque image Python.
 - Documents de l'assistant, README, script d'init et configuration de `payment-console` montés en lecture
   seule.
-- Aucun conteneur ne monte le socket Docker.
+- Seul `docker-socket-proxy` (profil `monitoring`) monte le socket Docker, en lecture seule. Il n'expose à
+  `log-shipper`, sur un réseau `internal`, que la lecture des conteneurs et des réseaux (écritures refusées).
 
 ## CORS et appels depuis un navigateur
 
@@ -110,5 +115,6 @@ SOPS, qui ne sont pas encore dans le dépôt.
 - **Sondes de santé superficielles** : elles ne testent pas la base.
 - **Assistant sans compte, ouvert au réseau** : tout poste du réseau où il est publié (le jour J, le point
   d'accès du consortium) peut l'interroger, donc lire la documentation de `documents/` (ce fichier compris)
-  et occuper le modèle. Il n'a aucun droit sur le système. `ASSISTANT_BIND=127.0.0.1` le réserve au PC Hôte.
-- **Adresse source masquée** par Docker Desktop dans les journaux : à vérifier depuis le PC Attaquant.
+  et occuper le modèle. Il n'a aucun droit sur le système. `ASSISTANT_BIND=127.0.0.1` le réserve à la VM.
+- **Adresse source des clients** dans les journaux : masquée sous Docker Desktop, en principe réelle sur la VM
+  (Docker Engine sous Linux). À vérifier depuis le PC Attaquant.

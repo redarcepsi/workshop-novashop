@@ -1,12 +1,15 @@
-# Collecte des métriques NovaShop par le Prometheus de la VM de supervision.
-# À copier dans scrape_configs de prometheus.yml, sur la VM, puis recharger Prometheus.
+# Collecte des métriques NovaShop par Prometheus, lancé dans le compose de la supervision sur la même VM.
+# À copier dans scrape_configs de prometheus.yml, en dehors du dépôt (le jeton n'a pas sa place dans git), puis
+# recharger Prometheus.
 #
-#   192.168.137.1:9464   adresse du PC Hôte et port de metrics-gateway (METRICS_BIND, METRICS_PORT dans .env)
-#   credentials          valeur de METRICS_TOKEN (.env du PC Hôte)
+#   metrics-gateway:80   la passerelle, jointe par le réseau Docker novashop_monitoring-edge : le conteneur
+#                        Prometheus doit y être branché (réseau externe, voir README › Supervision).
+#                        Prometheus installé hors de Docker : remplacer par 127.0.0.1:9464 (METRICS_BIND, METRICS_PORT)
+#   credentials          valeur de METRICS_TOKEN (.env de NovaShop)
 #
-# Prérequis sur le PC Hôte : docker compose --profile monitoring up -d
-# Vérification depuis la VM :
-#   curl -H "Authorization: Bearer <METRICS_TOKEN>" http://192.168.137.1:9464/metrics/payment
+# Prérequis : docker compose --profile monitoring up -d (crée le réseau novashop_monitoring-edge)
+# Vérification sur la VM :
+#   curl -H "Authorization: Bearer <METRICS_TOKEN>" http://127.0.0.1:9464/metrics/payment
 #
 # Une seule cible (la passerelle) et un chemin par service. L'étiquette service distingue les séries ;
 # up{service="payment-service"} = 0 si la passerelle ou le service ne répond pas. Pour le frontend, up indique
@@ -18,15 +21,15 @@ scrape_configs:
     authorization:
       credentials: metrics_dev_only_change_me
     static_configs:
-      - targets: ["192.168.137.1:9464"]
+      - targets: ["metrics-gateway:80"]
         labels: {service: auth-service, __metrics_path__: /metrics/auth}
-      - targets: ["192.168.137.1:9464"]
+      - targets: ["metrics-gateway:80"]
         labels: {service: shop-service, __metrics_path__: /metrics/shop}
-      - targets: ["192.168.137.1:9464"]
+      - targets: ["metrics-gateway:80"]
         labels: {service: payment-service, __metrics_path__: /metrics/payment}
-      - targets: ["192.168.137.1:9464"]
+      - targets: ["metrics-gateway:80"]
         labels: {service: rag-service, __metrics_path__: /metrics/rag}
-      - targets: ["192.168.137.1:9464"]
+      - targets: ["metrics-gateway:80"]
         labels: {service: frontend, __metrics_path__: /metrics/nginx}
     relabel_configs:
       # instance = nom du service plutôt que l'adresse de la passerelle, commune à toutes les cibles

@@ -80,7 +80,7 @@ Fichiers joints, au format OpenAI : le `content` d'un message `user` devient une
 | Texte `⚠️ Le modèle local ne répond plus, réessayez.` | Génération interrompue en mode flux : le code 200 était déjà parti |
 | Réponse `Aucun document n'est encore indexé…` | L'index est vide |
 
-## Appeler l'API de rag-service depuis le PC Hôte
+## Appeler l'API de rag-service depuis la VM
 
 `rag-service` n'étant pas publié, on passe par son conteneur, qui connaît déjà la clé :
 
