@@ -142,6 +142,99 @@ services:
       - payment
       - tools
 
+  # ---------------------------------------------------------------------------
+  # Assistant documentaire des opérateurs (pilier IA), profil "ai" :
+  #   docker compose --profile ai up -d        → port 8083, publié comme le site (HTTP_BIND)
+  #   (+ -f docker-compose.gpu.yml pour utiliser une carte NVIDIA)
+  #
+  #   ollama         ── modèles locaux gemma4:e4b (7,5 Md de paramètres) et embeddinggemma, non publié
+  #   ollama-models  ── télécharge les modèles absents au lancement, puis s'arrête
+  #   rag-service    ── LangChain : indexe documents/ dans Chroma, répond en citant ses sources
+  #   assistant-ui   ── interface de chat Streamlit, publiée sur la même interface que le site
+  #
+  # L'assistant aide à comprendre, il n'agit pas : aucun accès au socket Docker ni aux réseaux de la
+  # plateforme, documents montés en lecture seule, fichiers joints au chat lus en mémoire sans être
+  # enregistrés. La remédiation reste le travail de l'automate.
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.35.1
+    profiles: ["ai"]
+    restart: unless-stopped
+    environment:
+      # Garde les modèles chargés : pas de temps de chargement à la première question de la démo
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Une requête à la fois : la mémoire du PC Hôte est partagée avec toute la stack
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ai
+      - ai-egress
+
+  ollama-models:
+    image: ollama/ollama:0.35.1
+    profiles: ["ai"]
+    restart: "no"
+    # "show" fonctionne hors ligne : une fois les modèles présents, la stack redémarre sans Internet
+    entrypoint:
+      - /bin/sh
+      - -c
+      - for m in "$$LLM_MODEL" "$$EMBEDDING_MODEL"; do ollama show "$$m" >/dev/null 2>&1 || ollama pull "$$m" || exit 1; done
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma:latest}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - ai
+
+  rag-service:
+    build: ./services/rag-service
+    profiles: ["ai"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embeddinggemma:latest}
+      LLM_THINK: ${LLM_THINK:-true}
+      RAG_API_KEY: ${RAG_API_KEY:-rag_dev_only_change_me}
+    volumes:
+      # Déposer les fichiers dans documents/ : ils sont indexés en moins de 30 s, sans redémarrage
+      - ./documents:/data/documents:ro
+      - ./README.md:/data/project/README.md:ro
+      - rag-index:/data/chroma
+    depends_on:
+      ollama-models:
+        condition: service_completed_successfully
+    networks:
+      - ai
+
+  # Interface de chat Streamlit : une conversation, des fichiers joints, rien d'autre. Sans compte ni
+  # historique enregistré (rien sur disque). Publiée comme le site, sur HTTP_BIND (le jour J, le seul point
+  # d'accès du consortium) : tout poste de ce réseau peut l'interroger. ASSISTANT_BIND=127.0.0.1 la réserve
+  # au PC Hôte. Elle n'atteint que rag-service, avec la clé partagée. Ni Ollama, ni web, ni exécution de code
+  assistant-ui:
+    build: ./services/assistant-ui
+    profiles: ["ai"]
+    restart: unless-stopped
+    environment:
+      RAG_SERVICE_URL: http://rag-service:8000/api/rag/v1
+      RAG_API_KEY: ${RAG_API_KEY:-rag_dev_only_change_me}
+    depends_on:
+      - rag-service
+    ports:
+      - "${ASSISTANT_BIND:-${HTTP_BIND:-0.0.0.0}}:${ASSISTANT_PORT:-8083}:8501"
+    networks:
+      - ai
+      - assistant-edge
+
 networks:
   edge:
   frontend:
@@ -153,6 +246,14 @@ networks:
   payment-db:
     internal: true
   tools:
+  # Assistant IA : rag-service n'a aucune route vers l'extérieur ; seul Ollama sort (téléchargement des
+  # modèles) et seule l'interface porte un port publié
+  ai:
+    internal: true
+  ai-egress:
+  assistant-edge:
 
 volumes:
   pgdata:
+  ollama-models:
+  rag-index:

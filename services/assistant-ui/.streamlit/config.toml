@@ -1,0 +1,49 @@
+# Configuration de Streamlit pour l'interface de l'assistant (lue dans le dossier de travail, /app)
+
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501
+# Taille maximale d'un fichier joint, en Mo (rag-service refuse aussi au-delà de 10 Mo)
+maxUploadSize = 10
+# Code figé dans l'image : pas de surveillance des fichiers
+fileWatcherType = "none"
+
+[browser]
+# Aucune statistique d'utilisation envoyée à l'extérieur : l'assistant fonctionne hors ligne
+gatherUsageStats = false
+
+[client]
+# Ni menu de développement, ni bouton « Deploy »
+toolbarMode = "minimal"
+# Une erreur inattendue s'affiche sans détail dans le navigateur ; la trace est dans les journaux du conteneur
+showErrorDetails = "none"
+showErrorLinks = false
+
+[runner]
+magicEnabled = false
+
+# Thème clair et sombre inspirés de Claude ; Streamlit suit le réglage du système
+[theme]
+headingFont = "serif"
+baseRadius = "0.75rem"
+
+[theme.light]
+primaryColor = "#C96442"
+backgroundColor = "#FAF9F5"
+secondaryBackgroundColor = "#F0EEE6"
+textColor = "#1F1E1D"
+borderColor = "#E5E1D6"
+linkColor = "#A9502F"
+codeTextColor = "#A9502F"
+codeBackgroundColor = "#F0EEE6"
+
+[theme.dark]
+primaryColor = "#D97757"
+backgroundColor = "#262624"
+secondaryBackgroundColor = "#30302E"
+textColor = "#F5F4EF"
+borderColor = "#3E3E3A"
+linkColor = "#E39A7E"
+codeTextColor = "#E39A7E"
+codeBackgroundColor = "#1F1E1D"

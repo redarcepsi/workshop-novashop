@@ -54,10 +54,13 @@ flowchart LR
 | `postgres`        | Une instance, **une base + un rôle par service**                  | non                        | –            |
 | `adminer` (opt.)  | Interface web Postgres (`--profile tools`)                        | `127.0.0.1:8081` seulement | –            |
 | `payment-console` (opt.) | Swagger de payment-service via un proxy (`--profile tools`) | `127.0.0.1:8082` seulement | –     |
+| `ollama` (IA)     | Modèles locaux `gemma4:e4b` et `embeddinggemma` (`--profile ai`)  | non                        | –            |
+| `rag-service` (IA)| Assistant documentaire LangChain : index Chroma de `documents/`   | non                        | volume `rag-index` |
+| `assistant-ui` (IA) | Interface de chat Streamlit de l'assistant (`--profile ai`)     | `HTTP_BIND:8083`           | –            |
 
 ### Réseaux et exposition
 
-Seule la passerelle nginx est publiée. Chaque service n'est branché que sur les réseaux dont il a besoin :
+Seules la passerelle nginx et l'interface de l'assistant (profil `ai`) sont publiées sur le réseau. Chaque service n'est branché que sur les réseaux dont il a besoin :
 
 | Réseau       | Membres                                   | Type                 |
 |--------------|-------------------------------------------|----------------------|
@@ -67,18 +70,21 @@ Seule la passerelle nginx est publiée. Chaque service n'est branché que sur le
 | `backend`    | auth-service, shop-service, postgres      | `internal`           |
 | `payment-db` | payment-service, postgres                 | `internal`           |
 | `tools`      | adminer, payment-console                  | profil `tools`       |
+| `ai`         | ollama, rag-service, assistant-ui         | `internal`, profil `ai` |
+| `ai-egress`  | ollama (téléchargement des modèles)       | profil `ai`          |
+| `assistant-edge` | assistant-ui (porte le port publié)   | profil `ai`          |
 
 Conséquences, vérifiées sur la stack :
 
-- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seul le port 8080 répond : la base et les API
-  ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
+- depuis le réseau (point d'accès du consortium, Wi-Fi du campus), seuls les ports 8080 (site) et 8083
+  (assistant, profil `ai`) répondent : la base et les API ne sont pas joignables, et le WAF à venir ne pourra pas être contourné en appelant les API directement ;
 - `payment-service` n'est joignable que par `shop-service` (ni nginx ni auth-service ne le voient) et, si on
   la lance, par sa console d'exploration sur 127.0.0.1 ;
 - un réseau `internal` n'a pas de route vers l'extérieur : les API et la base **ne peuvent rien envoyer
   hors de Docker** (utile face à une tentative d'exfiltration). Seul nginx peut sortir ;
 - le jour J, `HTTP_BIND=192.168.137.1` dans `.env` publie le site **uniquement sur le point d'accès** du consortium,
   pas sur le Wi-Fi du campus. Le point d'accès doit alors être actif avant `docker compose up`, et le site
-  s'ouvre sur http://192.168.137.1:8080 (plus sur `localhost`).
+  s'ouvre sur http://192.168.137.1:8080 (plus sur `localhost`). L'assistant suit : http://192.168.137.1:8083.
 
 ### Choix de conception
 
@@ -185,6 +191,58 @@ docker compose down -v                 # arrêter ET supprimer les données (le 
 > `docker compose exec postgres psql -U postgres -d shop_db -c "DROP TABLE IF EXISTS order_items, orders, cart_items, products, categories CASCADE; DROP TYPE IF EXISTS order_status;"`
 > puis `docker compose restart shop-service`.
 
+## Assistant documentaire des opérateurs (IA)
+
+Un chatbot local qui répond aux questions des opérateurs à partir des documents de l'équipe (procédures,
+architecture, PCA/PRA, EBIOS…) et **cite ses sources**. Il est construit avec **LangChain** et **Ollama**
+(RAG) et n'a aucun accès au système : il aide à comprendre l'incident, la remédiation reste le travail de
+l'automate.
+
+```mermaid
+flowchart LR
+    O["Opérateur<br/>:8083 (HTTP_BIND)"] -->|"question + fichiers joints"| W[assistant-ui<br/>chat Streamlit]
+    W -->|"API compatible OpenAI<br/>Bearer RAG_API_KEY"| R[rag-service<br/>LangChain]
+    D[/documents/ + README<br/>lecture seule/] -->|"scruté toutes les 30 s"| R
+    R <-->|extraits| C[(Chroma<br/>volume rag-index)]
+    R -->|"embeddinggemma : vectorisation<br/>gemma4:e4b : réponse"| L[ollama<br/>GPU si disponible]
+```
+
+```bash
+docker compose --profile ai up -d                                             # sur le processeur
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ai up -d   # avec une carte NVIDIA
+```
+
+- Premier lancement : `ollama-models` télécharge les modèles (environ 7 Go), `rag-service` démarre ensuite.
+  Les lancements suivants n'ont plus besoin d'Internet (testé : réseaux Internet coupés, réponses sourcées).
+  Hors ligne, lancer sans `--build` et ne jamais faire `down -v`, qui supprime les modèles téléchargés.
+- Ouvrir http://localhost:8083 sur le PC Hôte, ou le port 8083 du PC Hôte depuis un autre poste du réseau
+  (http://192.168.137.1:8083 le jour J) : une conversation à la manière de Claude, sans historique (recharger
+  la page repart de zéro). Pendant une réponse, le bouton d'envoi devient un bouton stop.
+- L'interface est publiée comme le site et **sans compte** : tout poste du réseau peut interroger l'assistant,
+  donc lire ce que contient `documents/`. `ASSISTANT_BIND=127.0.0.1` dans `.env` la réserve au PC Hôte.
+- **Joindre un fichier à une question** (bouton « + » : journal, rapport d'incident, procédure ; texte, PDF,
+  Word, 10 Mo au plus) : il ne sert qu'à la conversation en cours, sans être indexé ni enregistré.
+- Venant d'une version avec Open WebUI : `docker compose --profile ai up -d --build --remove-orphans` retire son
+  conteneur ; son volume se supprime avec `docker volume rm novashop_open-webui-data`.
+- **Déposer les fichiers dans [`documents/`](documents/_LISEZ-MOI.md)** (Markdown, texte, YAML, PDF, Word) :
+  ils sont indexés en moins de 30 s, sans redémarrage (`docker compose logs -f rag-service` pour suivre).
+- Arrêter : `docker compose --profile ai down` (sans `--profile ai`, les services de l'assistant restent lancés).
+
+Choix et garde-fous :
+
+| Sujet | Choix |
+|-------|-------|
+| Modèle de langage | `gemma4:e4b`, 7,5 Md de paramètres (limite du sujet : 8), sur GPU si disponible |
+| Mode réflexion | Activé (`LLM_THINK`) : sans lui, le modèle commet des contresens sur les négations (« la base n'est *pas* joignable »). Environ 10 s de plus, réflexion affichée en direct dans un bloc repliable |
+| Embeddings | `embeddinggemma` avec ses préfixes de tâche (`task: search result \| query:` / `title: <fichier › section> \| text:`) |
+| Découpage | Markdown découpé par titres puis en extraits d'environ 1 000 caractères (recouvrement 150) ; PDF par page |
+| Recherche | **Hybride** : sémantique (Chroma) + mots-clés (BM25, identifiants comme `payment-db` ou `503` gardés exacts), fusionnées par rang (RRF) ; 5 extraits ; une relance courte est complétée par la question précédente |
+| Réponse | Uniquement à partir des extraits, numéros cités `[n]`, seuls les extraits cités listés en fin de réponse |
+| Injection de consignes | Les extraits sont présentés au modèle comme des données ; l'assistant n'a aucun outil, aucune action possible |
+| Fichiers joints | Lus en mémoire par `rag-service`, jamais indexés ni écrits ; en entier jusqu'à 6 000 caractères, au-delà les passages les plus proches de la question (même recherche hybride) ; cités « pièce jointe » |
+| Interface | Streamlit (`assistant-ui`) : une conversation, des fichiers joints, la réflexion repliable, la réponse en Markdown ; ni compte, ni historique, ni choix de modèle ; publiée comme le site (`HTTP_BIND`) |
+| Isolation | `rag-service` sur un réseau `internal` sans accès à la plateforme ; documents en lecture seule ; `assistant-ui` n'appelle que `rag-service` (ni Ollama, ni web, ni exécution de code) |
+
 ## Développement du front sans rebuild
 
 ```bash
@@ -266,14 +324,24 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 │   │       ├── order_service.py        # paiement du panier, annulation (verrous, compensation)
 │   │       ├── payment.py              # client de payment-service (clé API, idempotence, 503)
 │   │       └── routers/                # catalog.py, cart.py, orders.py, media.py
-│   └── payment-service/
-│       └── app/
-│           ├── models.py               # Merchant, Transaction (+ transitions), TransactionEvent
-│           ├── processor.py            # réseau carte / banque émettrice simulés, cartes de test
-│           ├── transaction_service.py  # création idempotente, capture, remboursement
-│           ├── security.py             # authentification marchand par clé API
-│           ├── seed.py                 # marchand de démo NovaShop
-│           └── routes.py
+│   ├── payment-service/
+│   │   └── app/
+│   │       ├── models.py               # Merchant, Transaction (+ transitions), TransactionEvent
+│   │       ├── processor.py            # réseau carte / banque émettrice simulés, cartes de test
+│   │       ├── transaction_service.py  # création idempotente, capture, remboursement
+│   │       ├── security.py             # authentification marchand par clé API
+│   │       ├── seed.py                 # marchand de démo NovaShop
+│   │       └── routes.py
+│   ├── rag-service/
+│   │   └── app/
+│   │       ├── indexer.py              # chargement, découpage, synchronisation de documents/ dans Chroma
+│   │       ├── embeddings.py           # embeddinggemma avec ses préfixes de tâche
+│   │       ├── attachments.py          # fichiers joints dans le chat : lecture en mémoire, choix des passages
+│   │       ├── assistant.py            # recherche des extraits, prompt, génération, sources
+│   │       └── routes.py               # API compatible OpenAI pour l'interface de chat
+│   └── assistant-ui/                   # interface de chat Streamlit (app.py, style.css, .streamlit/config.toml)
+├── documents/                          # fichiers lus par l'assistant (voir documents/_LISEZ-MOI.md)
+├── docker-compose.gpu.yml              # option : GPU NVIDIA pour Ollama
 └── frontend/                           # Vite + React 18 + Tailwind 3, servi par nginx
     ├── nginx.conf                      # SPA + reverse proxy /api/*
     └── src/{pages,components,context,utils}

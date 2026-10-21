@@ -1,0 +1,18 @@
+/* Conversation à la manière de Claude : bulle pour l'opérateur, réponse en pleine largeur et en serif */
+
+[class*="st-key-user-"] {
+  max-width: 85%;
+  padding: 0.625rem 1rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+/* Police fournie par Streamlit : rien n'est chargé depuis Internet */
+[class*="st-key-assistant-"] [data-testid="stMarkdownContainer"] {
+  font-family: "Source Serif", Georgia, serif;
+  line-height: 1.65;
+}
+
+.st-key-greeting {
+  margin-top: 22vh;
+}
