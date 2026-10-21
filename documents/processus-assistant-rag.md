@@ -71,8 +71,8 @@ sequenceDiagram
     W->>R: POST /api/rag/v1/chat/completions (conversation + fichiers joints)
     R->>R: lit les fichiers joints, garde les passages utiles
     R->>L: vectorise la question (embeddinggemma)
-    R->>C: 15 meilleurs extraits sémantiques + 15 lexicaux
-    R->>R: fusion RRF, garde 5 extraits
+    R->>C: 9 meilleurs extraits sémantiques + 9 lexicaux
+    R->>R: fusion RRF, garde 3 extraits
     R->>L: prompt système + extraits + historique (gemma4:e4b)
     L-->>W: réflexion puis réponse, en flux
     R-->>W: liste des sources citées
@@ -82,12 +82,13 @@ sequenceDiagram
 
 1. Si la question fait moins de 6 mots (relance du type « et pour shop-service ? »), elle est complétée par la
    question précédente de l'opérateur.
-2. Recherche sémantique dans Chroma : 15 candidats.
-3. Recherche lexicale BM25 : 15 candidats. Les identifiants contenant un tiret ou un chiffre (`payment-db`,
+2. Recherche sémantique dans Chroma : 9 candidats.
+3. Recherche lexicale BM25 : 9 candidats. Les identifiants contenant un tiret ou un chiffre (`payment-db`,
    `503`, `sk_test_…`) sont gardés exacts, et aussi découpés en parties ; les autres mots sont tronqués à
    7 caractères et les mots vides français retirés.
-4. Fusion des deux classements par rang (Reciprocal Rank Fusion, constante 60) : les 5 meilleurs extraits
-   sont retenus (`RETRIEVAL_K`).
+4. Fusion des deux classements par rang (Reciprocal Rank Fusion, constante 60) : les 3 meilleurs extraits
+   sont retenus (`RETRIEVAL_K`). Trois plutôt que cinq : sur le processeur de la VM, un prompt plus court
+   fait commencer la réponse plus tôt.
 
 La recherche lexicale rattrape les noms exacts (service, code d'erreur, nom d'alerte) que la recherche
 sémantique seule classe mal.
@@ -151,10 +152,12 @@ Application Streamlit publiée comme le site, sur le port 8083 (http://localhost
 
 ## Limites connues de l'assistant
 
-- Il répond à partir de 5 extraits : il ne sait pas résumer fidèlement un long document entier. Un fichier
+- Il répond à partir de 3 extraits : il ne sait pas résumer fidèlement un long document entier. Un fichier
   joint n'est lu en entier que jusqu'à 6 000 caractères.
 - Une seule requête à la fois côté Ollama (`OLLAMA_NUM_PARALLEL=1`) : deux questions simultanées attendent
   leur tour.
 - Sur processeur, sans GPU, une réponse avec réflexion peut prendre plus d'une minute
   (observé : `duration_ms=73697`).
+- Sur processeur, charger `gemma4:e4b` prend plus de 3 minutes. `rag-service` le précharge au démarrage et
+  Ollama ne le décharge plus (`OLLAMA_KEEP_ALIVE=-1`) : environ 7 Go de mémoire restent occupés en permanence.
 - Un PDF scanné, sans couche texte, ne peut pas être lu.

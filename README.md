@@ -251,7 +251,7 @@ Choix et garde-fous :
 | Mode réflexion | Activé (`LLM_THINK`) : sans lui, le modèle commet des contresens sur les négations (« la base n'est *pas* joignable »). Environ 10 s de plus sur GPU, bien davantage sur processeur ; réflexion affichée en direct dans un bloc repliable |
 | Embeddings | `embeddinggemma` avec ses préfixes de tâche (`task: search result \| query:` / `title: <fichier › section> \| text:`) |
 | Découpage | Markdown découpé par titres puis en extraits d'environ 1 000 caractères (recouvrement 150) ; PDF par page |
-| Recherche | **Hybride** : sémantique (Chroma) + mots-clés (BM25, identifiants comme `payment-db` ou `503` gardés exacts), fusionnées par rang (RRF) ; 5 extraits ; une relance courte est complétée par la question précédente |
+| Recherche | **Hybride** : sémantique (Chroma) + mots-clés (BM25, identifiants comme `payment-db` ou `503` gardés exacts), fusionnées par rang (RRF) ; 3 extraits ; une relance courte est complétée par la question précédente |
 | Réponse | Uniquement à partir des extraits, numéros cités `[n]`, seuls les extraits cités listés en fin de réponse |
 | Injection de consignes | Les extraits sont présentés au modèle comme des données ; l'assistant n'a aucun outil, aucune action possible |
 | Fichiers joints | Lus en mémoire par `rag-service`, jamais indexés ni écrits ; en entier jusqu'à 6 000 caractères, au-delà les passages les plus proches de la question (même recherche hybride) ; cités « pièce jointe » |

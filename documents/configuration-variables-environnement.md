@@ -78,7 +78,7 @@ Si un seul des deux conteneurs est recréé, les clés ne correspondent plus : `
 |----------|--------|----------|------|
 | `LLM_MODEL` | `gemma4:e4b` | ollama-models, rag-service | Modèle de génération |
 | `EMBEDDING_MODEL` | `embeddinggemma:latest` | ollama-models, rag-service | Modèle de vectorisation |
-| `OLLAMA_KEEP_ALIVE` | `30m` | ollama | Durée de maintien des modèles en mémoire |
+| `OLLAMA_KEEP_ALIVE` | `-1` | ollama | Durée de maintien des modèles en mémoire ; `-1` : jamais déchargés (recharger `gemma4:e4b` sur processeur prend plus de 3 minutes) |
 | `LLM_THINK` | `true` | rag-service | Mode réflexion (plus juste, environ 10 s de plus sur GPU, bien davantage sur processeur) |
 | `RAG_API_KEY` | valeur de développement | rag-service, assistant-ui | Secret : clé entre l'interface et `rag-service` |
 
@@ -112,7 +112,7 @@ d'environnement du même nom, à condition de l'ajouter au service dans `docker-
 | auth-service, shop-service | `JWT_ALGORITHM`, `JWT_ISSUER` | `HS256`, `novashop-auth` | Format des jetons |
 | payment-service | `SEED_MERCHANT`, `MERCHANT_CODE`, `MERCHANT_NAME` | `true`, `novashop`, `NovaShop` | Marchand de démo |
 | rag-service | `LLM_TEMPERATURE`, `LLM_NUM_CTX` | `0.2`, `8192` | Génération |
-| rag-service | `CHUNK_SIZE`, `CHUNK_OVERLAP`, `RETRIEVAL_K` | `1000`, `150`, `5` | Découpage et nombre d'extraits |
+| rag-service | `CHUNK_SIZE`, `CHUNK_OVERLAP`, `RETRIEVAL_K` | `1000`, `150`, `3` | Découpage et nombre d'extraits |
 | rag-service | `SYNC_INTERVAL_SECONDS` | `30` | Fréquence de scrutation de `documents/` |
 | rag-service | `ATTACHMENT_MAX_CHARS`, `ATTACHMENT_MAX_BYTES` | `6000`, 10 Mo | Fichiers joints : texte donné en entier au modèle, taille maximale |
 

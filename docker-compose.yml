@@ -161,8 +161,9 @@ services:
     profiles: ["ai"]
     restart: unless-stopped
     environment:
-      # Garde les modèles chargés : pas de temps de chargement à la première question de la démo
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Modèles jamais déchargés (-1) : sur processeur, recharger gemma4 prend plus de 3 minutes, que paierait
+      # la première question après une pause
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
       # Une requête à la fois : la mémoire de la VM est partagée avec toute la stack
       OLLAMA_NUM_PARALLEL: 1
     volumes:

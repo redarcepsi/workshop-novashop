@@ -20,14 +20,17 @@ class Settings(BaseSettings):
     # Mode "réflexion" de Gemma 4 : environ 10 s de plus, mais il évite les contresens à la lecture des
     # extraits (négations, tableaux). La réflexion est affichée en direct dans l'interface
     llm_think: bool = True
-    llm_keep_alive: str = "30m"
+    # Modèle jamais déchargé : sur processeur, le recharger prend plus de 3 minutes. "-1m" et non "-1" :
+    # dans une requête, Ollama exige une unité
+    llm_keep_alive: str = "-1m"
 
     # Dossiers indexés, séparés par des virgules (montés en lecture seule dans le conteneur)
     documents_dirs: str = "/data/documents,/data/project"
     chroma_dir: str = "/data/chroma"
     chunk_size: int = 1000
     chunk_overlap: int = 150
-    retrieval_k: int = 5
+    # 3 extraits plutôt que 5 : un prompt plus court, donc une réponse qui commence plus tôt sur processeur
+    retrieval_k: int = 3
     # Fichiers joints dans le chat : donnés en entier au modèle jusqu'à cette taille de texte, au-delà
     # seuls les passages les plus proches de la question (le contexte du modèle est de llm_num_ctx jetons)
     attachment_max_chars: int = 6000
