@@ -148,6 +148,7 @@ export const authApi = {
   login: (email, password) =>
     request('/auth/login', { method: 'POST', form: { username: email, password }, auth: false }),
   me: () => request('/auth/me'),
+  demo: () => request('/auth/demo', { auth: false }),
 }
 
 export const shopApi = {

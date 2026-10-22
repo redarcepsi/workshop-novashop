@@ -4,15 +4,12 @@ import AuthShell from '../components/AuthShell.jsx'
 import { Alert, Button, Field } from '../components/ui.jsx'
 import { initials } from '../utils/format.js'
 import { useAuth } from '../context/AuthContext.jsx'
-
-// Créés automatiquement par auth-service au démarrage (services/auth-service/app/seed.py)
-const DEMO_ACCOUNTS = [
-  { email: 'leo@novashop.fr', password: 'Demo1234', name: 'Léo Martin' },
-  { email: 'ines@novashop.fr', password: 'Demo1234', name: 'Inès Durand' },
-]
+import { useDemo } from '../hooks/useDemo.js'
 
 export default function Login() {
   const { user, login } = useAuth()
+  // Comptes créés par auth-service au démarrage (services/auth-service/app/seed.py), aucun si SEED_DEMO_USERS=false
+  const { accounts: demoAccounts } = useDemo()
   const navigate = useNavigate()
   const location = useLocation()
   const [email, setEmail] = useState('')
@@ -86,31 +83,34 @@ export default function Login() {
         </Button>
       </form>
 
-      <div className="mt-8 rounded-2xl border border-dashed border-white/15 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-night-400">Comptes de démonstration</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {DEMO_ACCOUNTS.map((account) => (
-            <button
-              key={account.email}
-              type="button"
-              disabled={submitting}
-              onClick={() => signIn(account.email, account.password)}
-              className="flex items-center gap-2.5 rounded-xl bg-white/5 px-3 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/10 disabled:opacity-60"
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-300 to-gold-600 text-xs font-bold text-night-950">
-                {initials(account.name)}
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-white">{account.name}</span>
-                <span className="block truncate text-xs text-night-400">{account.email}</span>
-              </span>
-            </button>
-          ))}
+      {demoAccounts.length > 0 && (
+        <div className="mt-8 rounded-2xl border border-dashed border-white/15 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-night-400">Comptes de démonstration</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {demoAccounts.map((account) => (
+              <button
+                key={account.email}
+                type="button"
+                disabled={submitting}
+                onClick={() => signIn(account.email, account.password)}
+                className="flex items-center gap-2.5 rounded-xl bg-white/5 px-3 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/10 disabled:opacity-60"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-300 to-gold-600 text-xs font-bold text-night-950">
+                  {initials(account.full_name)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-white">{account.full_name}</span>
+                  <span className="block truncate text-xs text-night-400">{account.email}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-night-400">
+            Un clic pour se connecter. Mot de passe :{' '}
+            <code className="rounded bg-white/10 px-1 py-0.5 text-night-100">{demoAccounts[0].password}</code>
+          </p>
         </div>
-        <p className="mt-3 text-xs text-night-400">
-          Un clic pour se connecter. Mot de passe : <code className="rounded bg-white/10 px-1 py-0.5 text-night-100">Demo1234</code>
-        </p>
-      </div>
+      )}
     </AuthShell>
   )
 }

@@ -7,8 +7,10 @@ import { ProductThumb } from '../components/ProductCard.jsx'
 import { Alert, Button, Field, PageSpinner } from '../components/ui.jsx'
 import { useCart } from '../context/CartContext.jsx'
 import { useWallet } from '../context/WalletContext.jsx'
+import { useDemo } from '../hooks/useDemo.js'
 import { formatCardNumber, formatExpiry, formatMoney } from '../utils/format.js'
 
+// Cartes reconnues par payment-service, proposées seulement en mode démo (SEED_DEMO_USERS)
 const TEST_CARDS = [
   { number: '4242 4242 4242 4242', label: 'Acceptée' },
   { number: '4000 0000 0000 0002', label: 'Refusée' },
@@ -43,6 +45,7 @@ export default function Checkout() {
   const [payment, setPayment] = useState({ card_number: '', expiry: '', cvc: '' })
   const [error, setError] = useState('')
   const [placing, setPlacing] = useState(false)
+  const demo = useDemo()
 
   if (!ready) return <PageSpinner />
   if (cart.items.length === 0 && !placing) return <Navigate to="/cart" replace />
@@ -75,20 +78,22 @@ export default function Checkout() {
             <h2 className="mb-5 flex items-center gap-3 font-display text-xl font-semibold text-white">
               <Icon name="card" className="h-6 w-6 text-gold-300" /> Paiement par carte
             </h2>
-            <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl bg-gold-400/10 px-4 py-3 text-xs text-gold-100 ring-1 ring-gold-300/20">
-              <Icon name="alert" className="h-4 w-4 shrink-0" />
-              <span className="mr-1">Paiement fictif. Cartes de test :</span>
-              {TEST_CARDS.map((c) => (
-                <button
-                  key={c.number}
-                  type="button"
-                  onClick={() => setPayment({ card_number: c.number, expiry: '12/30', cvc: '123' })}
-                  className="rounded-md bg-night-950/60 px-2 py-1 font-mono ring-1 ring-gold-300/20 transition hover:ring-gold-300/60"
-                >
-                  {c.number} <span className="font-sans text-gold-300">({c.label})</span>
-                </button>
-              ))}
-            </div>
+            {demo.enabled && (
+              <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl bg-gold-400/10 px-4 py-3 text-xs text-gold-100 ring-1 ring-gold-300/20">
+                <Icon name="alert" className="h-4 w-4 shrink-0" />
+                <span className="mr-1">Paiement fictif. Cartes de test :</span>
+                {TEST_CARDS.map((c) => (
+                  <button
+                    key={c.number}
+                    type="button"
+                    onClick={() => setPayment({ card_number: c.number, expiry: '12/30', cvc: '123' })}
+                    className="rounded-md bg-night-950/60 px-2 py-1 font-mono ring-1 ring-gold-300/20 transition hover:ring-gold-300/60"
+                  >
+                    {c.number} <span className="font-sans text-gold-300">({c.label})</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-6">
               <Field label="Numéro de carte" htmlFor="card" className="sm:col-span-6">
                 <div className="relative">
@@ -98,7 +103,7 @@ export default function Checkout() {
                     inputMode="numeric"
                     autoComplete="off"
                     className="input pr-11 font-mono tracking-wider"
-                    placeholder="4242 4242 4242 4242"
+                    placeholder={demo.enabled ? TEST_CARDS[0].number : '1234 5678 9012 3456'}
                     value={payment.card_number}
                     onChange={(e) => setPayment((p) => ({ ...p, card_number: formatCardNumber(e.target.value) }))}
                   />

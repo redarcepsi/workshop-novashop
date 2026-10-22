@@ -80,4 +80,6 @@ mesurant le délai. En revanche, `POST /api/auth/register` répond 409 pour un e
 
 `auth-service` crée au démarrage `leo@novashop.fr` (Léo Martin) et `ines@novashop.fr` (Inès Durand) s'ils
 n'existent pas. Désactivation : `SEED_DEMO_USERS=false`. Sur la page de connexion, un clic sur un compte de
-démo suffit pour se connecter (mot de passe indiqué dans le README).
+démo suffit pour se connecter (mot de passe indiqué dans le README). Le front lit la liste sur
+`GET /api/auth/demo` : avec `SEED_DEMO_USERS=false`, il n'affiche plus ces comptes, ni les cartes de test au
+paiement. Les comptes déjà créés restent en base et utilisables : la variable n'empêche que leur création.

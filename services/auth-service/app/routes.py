@@ -4,11 +4,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .config import API_PREFIX
+from .config import API_PREFIX, settings
 from .database import get_db
 from .models import User
-from .schemas import HealthOut, Token, UserCreate, UserOut
+from .schemas import DemoOut, HealthOut, Token, UserCreate, UserOut
 from .security import create_access_token, get_current_user, hash_password, verify_password
+from .seed import DEMO_USERS
 
 router = APIRouter(prefix=API_PREFIX)
 
@@ -16,6 +17,17 @@ router = APIRouter(prefix=API_PREFIX)
 @router.get("/health", response_model=HealthOut, tags=["Système"], summary="Sonde de santé")
 def health():
     return {"status": "ok", "service": "auth-service"}
+
+
+@router.get("/demo", response_model=DemoOut, tags=["Système"], summary="Mode démonstration")
+def demo():
+    """
+    Comptes de démo proposés en un clic sur la page de connexion ; `enabled` affiche aussi les cartes de test
+    au paiement. Avec `SEED_DEMO_USERS=false` : `enabled` à false et aucun compte.
+    """
+    if not settings.seed_demo_users:
+        return {"enabled": False, "accounts": []}
+    return {"enabled": True, "accounts": DEMO_USERS}
 
 
 @router.post(

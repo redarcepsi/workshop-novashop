@@ -30,7 +30,9 @@ supervision et les scripts existants.
 | Léo Martin   | `leo@novashop.fr`  | `Demo1234`   |
 | Inès Durand  | `ines@novashop.fr` | `Demo1234`   |
 
-Sur la page de connexion, un clic sur un compte de démo suffit pour se connecter.
+Sur la page de connexion, un clic sur un compte de démo suffit pour se connecter. Avec `SEED_DEMO_USERS=false`,
+le site n'affiche plus ces comptes ni les cartes de test au paiement (`docker compose up -d auth-service` suffit,
+sans reconstruire le front) ; les comptes déjà créés restent en base.
 
 ## Architecture
 

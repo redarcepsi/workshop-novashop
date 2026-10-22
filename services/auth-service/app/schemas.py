@@ -49,3 +49,14 @@ class Token(BaseModel):
 class HealthOut(BaseModel):
     status: str
     service: str
+
+
+class DemoAccount(BaseModel):
+    email: str
+    full_name: str
+    password: str
+
+
+class DemoOut(BaseModel):
+    enabled: bool = Field(description="Valeur de SEED_DEMO_USERS")
+    accounts: list[DemoAccount]

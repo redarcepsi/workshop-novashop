@@ -44,7 +44,7 @@ service de se connecter (`Base indisponible (tentative N/15)` puis redémarrages
 |----------|--------|----------|------|
 | `JWT_SECRET` | valeur de développement | auth-service, shop-service | Secret de signature HS256, **identique** dans les deux services |
 | `JWT_EXPIRE_MINUTES` | `60` | auth-service | Durée de vie des jetons |
-| `SEED_DEMO_USERS` | `true` | auth-service | Création des comptes de démo |
+| `SEED_DEMO_USERS` | `true` | auth-service | Création des comptes de démo, et leur affichage sur la page de connexion avec les cartes de test au paiement |
 | `CORS_ORIGINS` | `http://localhost:8080,http://localhost:5173` | auth-service, shop-service | Origines autorisées par CORS |
 
 Changer `JWT_SECRET` invalide tous les jetons en circulation : les clients connectés sont déconnectés à leur

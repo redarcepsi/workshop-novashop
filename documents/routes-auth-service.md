@@ -11,6 +11,7 @@ par la passerelle nginx : `http://<hôte>:8080/api/auth/...`. Code : `services/a
 | POST | `/api/auth/register` | – | 201 | 409, 422 |
 | POST | `/api/auth/login` | – | 200 | 401, 422 |
 | GET | `/api/auth/me` | JWT | 200 | 401 |
+| GET | `/api/auth/demo` | – | 200 | – |
 | GET | `/api/auth/health` | – | 200 | – |
 | GET | `/metrics` | – (relayée par `metrics-gateway` seulement) | 200 | – |
 
@@ -56,6 +57,14 @@ Profil de l'utilisateur connecté.
 
 Le front appelle cette route à chaque chargement de page pour restaurer la session. Un échec, quel qu'il soit,
 déconnecte l'utilisateur côté navigateur.
+
+## GET /api/auth/demo
+
+Mode démonstration, lu par le front : comptes de démo proposés en un clic sur la page de connexion, et cartes de
+test affichées au paiement.
+
+- `SEED_DEMO_USERS=true` : `{"enabled": true, "accounts": [{"email", "full_name", "password"}, ...]}`.
+- `SEED_DEMO_USERS=false` : `{"enabled": false, "accounts": []}` ; le front n'affiche ni comptes ni cartes de test.
 
 ## GET /api/auth/health
 
