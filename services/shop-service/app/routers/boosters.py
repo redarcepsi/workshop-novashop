@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from .. import booster_service
 from ..config import API_PREFIX
 from ..database import get_db
 from ..models import Booster
-from ..schemas import BoosterOpeningOut, BoosterOut
+from ..schemas import BoosterBatchOut, BoosterOpeningOut, BoosterOut
 from ..security import CurrentUser, get_current_user
 
 router = APIRouter(prefix=f"{API_PREFIX}/boosters", tags=["Boosters"])
@@ -44,3 +44,31 @@ def open_booster(
     en une seule transaction. Les cartes sont renvoyées dans l'ordre de révélation (la plus rare en dernier).
     """
     return booster_service.open_booster(db, user.id, slug, idempotency_key)
+
+
+@router.post(
+    "/{slug}/open-batch",
+    response_model=BoosterBatchOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Acheter et ouvrir plusieurs boosters d'un coup",
+    responses={
+        401: {"description": "Jeton absent, invalide ou expiré"},
+        404: {"description": "Booster introuvable"},
+        409: {"description": "Solde insuffisant pour tous les boosters, ou clé d'idempotence déjà utilisée"},
+    },
+)
+def open_batch(
+    slug: str,
+    count: int = Query(booster_service.MAX_BATCH, ge=1, le=booster_service.MAX_BATCH, description="Nombre de boosters"),
+    idempotency_key: uuid.UUID | None = Header(
+        None, description="UUID choisi par le client : une requête rejouée renvoie les mêmes ouvertures sans redébiter"
+    ),
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Ouvre `count` boosters identiques (5 par défaut) dans une seule transaction : tous sont payés et ouverts, ou
+    aucun (solde insuffisant pour le lot : 409, rien n'est débité). Une carte n'est « nouvelle » qu'une fois dans le
+    lot.
+    """
+    return booster_service.open_boosters(db, user.id, slug, idempotency_key, count)

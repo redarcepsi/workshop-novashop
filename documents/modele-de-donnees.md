@@ -57,8 +57,9 @@ erDiagram
 
 ### Tables card_sets et cards (données de référence)
 
-`card_sets` : `id` (identifiant TCGdex, clé primaire : `base1`, `base2`, `base3`, `sv03.5`, `sv08.5`), `name`,
-`serie`, `release_date`, `logo_url`, `position`.
+`card_sets` : `id` (identifiant TCGdex, clé primaire : `base1` à `base3`, `bw1` à `bw10`, `dv1`, `sv03.5`, `sv08.5`),
+`name`, `serie` (`Base`, `Noir & Blanc`, `Écarlate et Violet`), `release_date`, `logo_url`, `position` (ordre
+d'affichage : par série, puis par date de sortie).
 
 | Colonne de cards | Type | Remarque |
 |------------------|------|----------|
@@ -67,12 +68,14 @@ erDiagram
 | `set_id` | varchar(20) | Clé étrangère vers `card_sets`, indexée |
 | `number`, `name`, `category` | – | Numéro dans le set, nom français, Pokémon / Dresseur / Énergie |
 | `rarity` | enum `card_rarity` | `COMMON` < `UNCOMMON` < `RARE` < `HOLO` < `ULTRA` < `SECRET` (Postgres trie dans cet ordre) |
-| `rarity_label` | varchar(40) | Libellé d'origine (`Rare Holo`, `Illustration spéciale rare`…) |
+| `rarity_label` | varchar(40) | Libellé d'origine (`Rare Holo`, `Rare EX`, `Magnifique rare`, `Illustration spéciale rare`…) |
 | `types` | JSONB | Liste des types (`["Feu"]`), filtrée avec l'opérateur `@>` |
 | `hp`, `illustrator`, `description` | – | Facultatifs |
 | `image_url` | varchar(300) | Image chez TCGdex, sans extension (`/low.webp`, `/high.webp`) |
 
-Insérées au premier démarrage depuis `app/data/cards.json` (609 cartes). Aucune image n'est stockée.
+Insérées depuis `app/data/cards.json` (1 797 cartes) : toutes au premier démarrage, puis seulement celles des
+sets ajoutés depuis. Une carte déjà en base n'est jamais modifiée (ni son prix, ni son stock). Aucune image n'est
+stockée.
 
 ### Table products
 
@@ -133,7 +136,7 @@ négatif = débit), `balance_after`, `reason` (enum `wallet_reason` : `PURCHASE`
 
 `boosters` : `id`, `slug` (unique), `name`, `description`, `price` (en PokéDollars, > 0), `set_ids` (JSONB),
 `slots` (JSONB : une entrée par carte, `{rareté: poids}`), `cover_card_id` (clé étrangère vers `cards`),
-`colors`, `position`.
+`colors`, `position`. Ces colonnes sont remises à jour depuis `seed.py` à chaque démarrage.
 
 `booster_openings` : historique des ouvertures : `id` (UUID), `user_id` (indexé), `booster_id`, `price` (payé),
 `request_id` (clé d'idempotence envoyée par le navigateur ; contrainte unique `uq_opening_user_request` sur

@@ -236,18 +236,237 @@
   50% { background-position: -20% 0, 0 0; }
 }
 
-/* Déchirure du haut du paquet */
-.pack-tear {
-  animation: pack-tear 0.65s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+/* ------------------------------------------------------------------ ouverture d'un booster */
+
+/* Rayons de lumière derrière le paquet, aux couleurs du set */
+.opening-rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  translate: -50% -50%;
+  background: repeating-conic-gradient(from 0deg, var(--ray) 0deg 5deg, transparent 5deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 45%);
+  mask-image: radial-gradient(circle, #000 0%, transparent 45%);
+  opacity: 0.16;
+  animation: spin 60s linear infinite;
+  transition: opacity 0.6s;
 }
-@keyframes pack-tear {
-  to { transform: translate(40%, -160%) rotate(28deg); opacity: 0; }
+.opening-rays.is-intense {
+  opacity: 0.32;
+  animation-duration: 12s;
+}
+@keyframes spin {
+  to { rotate: 360deg; }
+}
+
+/* Le paquet suit légèrement le pointeur */
+.pack-stage {
+  perspective: 1000px;
+}
+.pack-tilt {
+  transform: rotateX(var(--tx, 0deg)) rotateY(var(--ty, 0deg));
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+/* Ligne de découpe : un éclat la parcourt pour inviter au geste, la partie déjà « coupée » s'illumine */
+.tear-line {
+  pointer-events: none;
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 8%;
+  z-index: 5;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.9) 0 7px, transparent 7px 12px);
+  filter: drop-shadow(0 0 3px rgb(255 255 255 / 0.9));
+}
+.tear-line::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 0;
+  width: 26px;
+  height: 16px;
+  background: radial-gradient(closest-side, #fff, rgb(255 255 255 / 0));
+  animation: tear-hint 2.4s ease-in-out infinite;
+}
+.tear-line::after {
+  content: '';
+  position: absolute;
+  inset: -2px auto -2px 0;
+  width: calc(var(--cut, 0) * 100%);
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fff, #fff6d5);
+  box-shadow: 0 0 14px 4px rgb(255 255 255 / 0.85), 0 0 30px 8px var(--c1);
+}
+.tear-line.is-charging::before {
+  display: none;
+}
+.tear-line.is-charging::after {
+  width: 100%;
+  animation: tear-charge 0.5s ease-in-out infinite alternate;
+}
+@keyframes tear-hint {
+  0% { left: -13px; opacity: 0; }
+  15%, 80% { opacity: 1; }
+  100% { left: calc(100% - 13px); opacity: 0; }
+}
+@keyframes tear-charge {
+  from { box-shadow: 0 0 10px 3px rgb(255 255 255 / 0.7), 0 0 24px 6px var(--c1); }
+  to { box-shadow: 0 0 22px 8px rgb(255 255 255 / 0.95), 0 0 60px 18px var(--c1); }
+}
+
+/* Le paquet se charge pendant le tirage, puis tremble tant que le serveur n'a pas répondu */
+.pack-charging {
+  animation:
+    pack-charge 0.9s ease-in,
+    pack-shake 0.18s 0.9s ease-in-out infinite;
+}
+@keyframes pack-charge {
+  0% { transform: translate(0, 0) rotate(0) scale(1); }
+  20% { transform: translate(-2px, 1px) rotate(-1deg) scale(1.01); }
+  40% { transform: translate(3px, -1px) rotate(1.5deg) scale(1.02); }
+  60% { transform: translate(-4px, 2px) rotate(-2deg) scale(1.03); }
+  80% { transform: translate(5px, -2px) rotate(2.5deg) scale(1.04); }
+  100% { transform: translate(0, 0) rotate(0) scale(1.05); }
+}
+@keyframes pack-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0) scale(1.05); }
+  25% { transform: translate(-4px, 1px) rotate(-2deg) scale(1.05); }
+  75% { transform: translate(4px, -1px) rotate(2deg) scale(1.05); }
+}
+
+/* Déchirure : la bande du haut s'envole, la lumière jaillit de l'ouverture, puis le paquet tombe */
+.pack-strip {
+  z-index: 6;
+  transform-origin: 8% 8%;
+  animation: strip-fly 0.75s cubic-bezier(0.3, 0, 0.6, 1) forwards;
+}
+@keyframes strip-fly {
+  0% { transform: translate(0, 0) rotate(0); }
+  25% { transform: translate(4%, -5%) rotate(-6deg); }
+  100% { transform: translate(55%, -95%) rotate(32deg); opacity: 0; }
+}
+.pack-light {
+  pointer-events: none;
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: 91%;
+  z-index: 4;
+  height: 160%;
+  transform-origin: 50% 100%;
+  background: radial-gradient(60% 100% at 50% 100%, #fff 0%, rgb(255 246 213 / 0.85) 18%, color-mix(in srgb, var(--c1) 60%, transparent) 45%, transparent 75%);
+  filter: blur(6px);
+  animation: pack-light 1.1s ease-out forwards;
+}
+@keyframes pack-light {
+  0% { transform: scaleY(0.05); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: scaleY(1); opacity: 0.9; }
 }
 .pack-drop {
-  animation: pack-drop 0.55s 0.35s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  animation: pack-drop 0.6s 0.65s cubic-bezier(0.5, 0, 0.75, 0) forwards;
 }
 @keyframes pack-drop {
-  to { transform: translateY(70%) scale(0.92); opacity: 0; }
+  to { transform: translateY(80%) scale(0.9) rotate(4deg); opacity: 0; }
+}
+.screen-flash {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: radial-gradient(circle at 50% 45%, var(--flash, #fff) 0%, transparent 70%);
+  animation: screen-flash 0.9s ease-out forwards;
+}
+@keyframes screen-flash {
+  0% { opacity: 0; }
+  15% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+/* Pile de cartes : chaque carte glisse vers la réserve une fois vue */
+.stack-card {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.45s, filter 0.4s;
+}
+.stack-enter {
+  animation: stack-enter 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+@keyframes stack-enter {
+  from { transform: translateY(55%) scale(0.85); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* Montée en tension avant une carte rare : la carte tremble et s'entoure de la couleur de sa rareté */
+.card-charge {
+  animation: card-charge 0.11s ease-in-out infinite alternate;
+}
+.card-charge > * {
+  box-shadow: 0 0 0 2px var(--glow), 0 0 50px 12px var(--glow);
+  transition: box-shadow 0.3s;
+}
+@keyframes card-charge {
+  from { transform: translate(-2px, 0) rotate(-0.8deg); }
+  to { transform: translate(2px, -1px) rotate(0.8deg); }
+}
+
+/* Éclat de révélation d'une carte rare : rayons, anneau et étincelles */
+.burst {
+  pointer-events: none;
+  position: absolute;
+  inset: -55%;
+  z-index: 0;
+}
+.burst-rays {
+  position: absolute;
+  inset: 0;
+  background: repeating-conic-gradient(from 0deg, var(--glow) 0deg 4deg, transparent 4deg 14deg);
+  -webkit-mask-image: radial-gradient(circle, #000 5%, transparent 60%);
+  mask-image: radial-gradient(circle, #000 5%, transparent 60%);
+  opacity: 0;
+  animation: burst-rays 2.6s ease-out forwards;
+}
+@keyframes burst-rays {
+  0% { opacity: 0; transform: scale(0.4) rotate(0); }
+  15% { opacity: 0.75; }
+  100% { opacity: 0.35; transform: scale(1) rotate(40deg); }
+}
+.burst-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  border: 3px solid var(--glow);
+  box-shadow: 0 0 30px var(--glow), inset 0 0 30px var(--glow);
+  animation: burst-ring 0.9s ease-out forwards;
+}
+@keyframes burst-ring {
+  from { transform: scale(0.3); opacity: 1; }
+  to { transform: scale(2.6); opacity: 0; }
+}
+.burst-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px 3px var(--glow);
+  animation: burst-particle 1.1s cubic-bezier(0.1, 0.7, 0.3, 1) both;
+}
+@keyframes burst-particle {
+  from { transform: rotate(var(--a)) translateY(0) scale(1); opacity: 1; }
+  to { transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) scale(0.2); opacity: 0; }
 }
 
 /* Masque les flèches des champs numériques */
@@ -271,10 +490,21 @@ input[type='number'] {
   .text-bling,
   .text-bling-blue,
   .text-holo,
-  .reveal-glow::before {
+  .reveal-glow::before,
+  .opening-rays,
+  .tear-line::before,
+  .card-charge,
+  .burst-rays,
+  .burst-ring,
+  .burst-particle {
     animation: none;
   }
-  .flip-inner {
+  .burst-ring,
+  .burst-particle {
+    display: none;
+  }
+  .flip-inner,
+  .stack-card {
     transition-duration: 0.01s;
   }
 }

@@ -16,11 +16,18 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 API = "https://api.tcgdex.net/v2/fr"
-SETS = ["base1", "base2", "base3", "sv03.5", "sv08.5"]
+# Dans l'ordre d'affichage : par série, puis par date de sortie
+SETS = [
+    "base1", "base2", "base3",
+    "bw1", "bw2", "bw3", "bw4", "bw5", "bw6", "dv1", "bw7", "bw8", "bw9", "bw10",
+    "sv03.5", "sv08.5",
+]
 OUTPUT = Path(__file__).resolve().parent.parent / "services" / "shop-service" / "app" / "data" / "cards.json"
 
 # TCGdex n'a pas de logo français pour le Set de Base : on prend le logo anglais
 LOGO_FALLBACK = {"base1": "https://assets.tcgdex.net/en/base/base1/logo"}
+# Coquilles de TCGdex dans les noms français officiels
+NAME_FIX = {"bw6": "Dragons Exaltés", "bw8": "Tempête Plasma"}
 
 
 def get(path: str) -> dict:
@@ -59,7 +66,7 @@ def main() -> int:
             sets.append(
                 {
                     "id": data["id"],
-                    "name": data["name"],
+                    "name": NAME_FIX.get(set_id, data["name"]),
                     "serie": data["serie"]["name"],
                     "release_date": data.get("releaseDate"),
                     "official_count": data["cardCount"]["official"],

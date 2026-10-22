@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RARITIES } from '../utils/cards.js'
 import { formatMoney, formatNumber } from '../utils/format.js'
@@ -143,7 +143,17 @@ export function RarityBadge({ rarity, label, className = '' }) {
   )
 }
 
+/** Quantité : boutons − / +, ou saisie directe (validée à la sortie du champ ou par Entrée, ramenée entre min et max). */
 export function QuantityStepper({ value, onChange, min = 1, max = 10, disabled = false }) {
+  const [draft, setDraft] = useState(null) // saisie en cours
+  const digits = String(max).length
+  const commit = () => {
+    if (draft == null) return
+    const quantity = Math.min(max, Math.max(min, Number.parseInt(draft, 10) || value))
+    setDraft(null)
+    if (quantity !== value) onChange(quantity)
+  }
+
   return (
     <div className="inline-flex items-center rounded-xl border border-white/15 bg-white/5">
       <button
@@ -155,7 +165,18 @@ export function QuantityStepper({ value, onChange, min = 1, max = 10, disabled =
       >
         <Icon name="minus" className="h-4 w-4" />
       </button>
-      <span className="w-8 text-center text-sm font-semibold tabular-nums">{value}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        aria-label="Quantité"
+        value={draft ?? value}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, digits))}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        style={{ width: `${Math.max(digits, 2) + 1.5}ch` }}
+        className="bg-transparent text-center text-sm font-semibold tabular-nums text-white focus:outline-none focus:ring-1 focus:ring-gold-300/50 rounded disabled:opacity-60"
+      />
       <button
         type="button"
         aria-label="Augmenter la quantité"

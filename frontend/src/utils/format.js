@@ -14,6 +14,9 @@ export const formatPD = (value) => `${integer.format(value ?? 0)} PokéDollars`
 /** Probabilité : « 33,3 % », « < 0,1 % », « 100 % ». */
 export const formatChance = (p) => (p >= 1 ? '100 %' : p > 0 && p < 0.001 ? '< 0,1 %' : percent.format(p))
 
+/** Probabilité en fréquence : « 1 booster sur 44 ». */
+export const formatOneIn = (p) => (p >= 0.5 ? null : `1 booster sur ${integer.format(Math.round(1 / p))}`)
+
 export const formatDate = (iso) => longDate.format(new Date(iso))
 
 export const formatDateTime = (iso) => dateTime.format(new Date(iso))

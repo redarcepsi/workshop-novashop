@@ -4,7 +4,7 @@ import { shopApi } from '../api.js'
 import Icon from '../components/Icon.jsx'
 import ProductCard, { ProductGridSkeleton } from '../components/ProductCard.jsx'
 import { Alert, Button, EmptyState } from '../components/ui.jsx'
-import { RARITIES, RARITY_ORDER, TYPES, setLogo } from '../utils/cards.js'
+import { RARITIES, RARITY_ORDER, TYPES, groupBySerie, serieInfo, setLogo } from '../utils/cards.js'
 import { plural } from '../utils/format.js'
 
 const PAGE_SIZE = 24
@@ -122,24 +122,35 @@ export default function Cards() {
     <div className="space-y-8">
       <FilterGroup title="Sets">
         <ul className="space-y-1">
-          {[{ id: '', name: 'Tous les sets' }, ...sets].map((s) => (
-            <li key={s.id}>
-              <button
-                onClick={() => update({ set: s.id })}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
-                  set === s.id ? 'bg-white/10 font-semibold text-white' : 'text-night-300 hover:bg-white/5 hover:text-white'
-                }`}
-              >
-                <span className="flex h-6 w-10 shrink-0 items-center justify-center">
-                  {s.logo_url ? (
-                    <img src={setLogo(s.logo_url)} alt="" className="max-h-full max-w-full object-contain" loading="lazy" />
-                  ) : (
-                    <Icon name="cards" className="h-4 w-4" />
-                  )}
-                </span>
-                <span className="flex-1">{s.name}</span>
-                {s.card_count != null && <span className="text-xs text-night-500">{s.card_count}</span>}
-              </button>
+          {[[null, [{ id: '', name: 'Tous les sets' }]], ...groupBySerie(sets)].map(([serie, list]) => (
+            <li key={serie ?? 'all'}>
+              {serie && (
+                <p className="mb-1 mt-4 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-night-500">
+                  {serieInfo(serie).label}
+                </p>
+              )}
+              <ul className="space-y-1">
+                {list.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      onClick={() => update({ set: s.id })}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition ${
+                        set === s.id ? 'bg-white/10 font-semibold text-white' : 'text-night-300 hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      <span className="flex h-6 w-10 shrink-0 items-center justify-center">
+                        {s.logo_url ? (
+                          <img src={setLogo(s.logo_url)} alt="" className="max-h-full max-w-full object-contain" loading="lazy" />
+                        ) : (
+                          <Icon name="cards" className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="flex-1">{s.name}</span>
+                      {s.card_count != null && <span className="text-xs text-night-500">{s.card_count}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>

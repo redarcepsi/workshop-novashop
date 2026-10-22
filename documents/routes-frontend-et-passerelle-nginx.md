@@ -39,9 +39,9 @@ nginx ajoute `X-Real-IP`, `X-Forwarded-For` et `X-Forwarded-Proto` ; les service
 | `/` | Accueil | – | `GET /api/shop/products`, `GET /api/shop/boosters`, `GET /api/shop/sets` |
 | `/cards` | Cartes à l'unité, filtrables (set, rareté, type) | – | `GET /api/shop/sets`, `GET /api/shop/products?kind=CARD&…` |
 | `/cards/:slug` | Fiche d'une carte | – | `GET /api/shop/products/{slug}`, la même carte dans d'autres sets ; connecté : `GET /api/shop/collection` |
-| `/boosters` | Boosters et ouverture | ouverture : oui | `GET /api/shop/boosters`, `POST /api/shop/boosters/{slug}/open` |
+| `/boosters` | Boosters et ouverture | ouverture : oui | `GET /api/shop/boosters`, `POST /api/shop/boosters/{slug}/open`, `…/open-batch` (« × 5 ») |
 | `/pokedollars` | Lots de PokéDollars, solde et historique | – | `GET /api/shop/products?kind=POKEDOLLARS` ; connecté : `GET /api/shop/wallet` |
-| `/collection` | Collection, avancement par set | oui | `GET /api/shop/collection`, `GET /api/shop/sets/{id}/cards` |
+| `/collection` | Collection, boosters ouverts, avancement par set | oui | `GET /api/shop/collection`, `GET /api/shop/sets/{id}/cards` |
 | `/cart` | Panier | – | Panier invité : `POST /api/shop/cart/quote` ; connecté : routes `/api/shop/cart…` |
 | `/checkout` | Paiement par carte | oui | `POST /api/shop/orders` |
 | `/orders` | Historique | oui | `GET /api/shop/orders` |

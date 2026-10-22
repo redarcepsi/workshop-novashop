@@ -53,17 +53,47 @@ illimité.
 Le solde ne peut pas devenir négatif : la base l'interdit (`ck_wallet_balance_non_negative`) en plus du contrôle
 applicatif.
 
+### Ouverture groupée (5 boosters)
+
+`POST /api/shop/boosters/{slug}/open-batch?count=5` suit les mêmes étapes dans **une seule transaction** :
+
+- le solde doit couvrir tout le lot (`count × prix`), sinon 409 et rien n'est débité ;
+- chaque booster est tiré indépendamment et a sa ligne `wallet_entries` et sa ligne `booster_openings` ;
+- une carte tirée deux fois dans le lot n'est « nouvelle » que la première fois ;
+- l'`Idempotency-Key` du lot donne une clé par booster (UUID v5 dérivé), toujours la même : une requête
+  rejouée renvoie les mêmes 5 ouvertures sans redébiter ;
+- `shop_boosters_opened_total` augmente de 5, et le journal compte une ligne `Booster ouvert` par booster.
+
+Côté navigateur, le bouton « × 5 » de la page Boosters fait une seule requête, puis le client déchire les paquets
+un par un (les cartes sont déjà tirées) ; un récapitulatif rassemble toutes les cartes, les plus rares en tête.
+
 ## Probabilités affichées
 
-Chaque booster est une liste d'emplacements `{rareté: poids}`. Exemples :
+Chaque booster est une liste d'emplacements `{rareté: poids}` (`seed.py`), dans l'ordre de révélation :
 
 | Booster | Emplacements |
 |---------|--------------|
-| Set de Base, Jungle, Fossile | 3 × commune, 2 × peu commune, 1 × {rare : 2, holo : 1} |
-| 151, Évolutions Prismatiques | 3 × commune, 1 × peu commune, 1 × variante {commune 50, peu commune 30, ultra 15, secrète 5}, 1 × {rare 72, holo 22, ultra 5, secrète 1} |
-| Légendaire (5 sets) | 2 × holo, 2 × {holo 70, ultra 30}, 1 × {ultra 75, secrète 25} |
+| Set de Base, Jungle, Fossile | 3 × commune, 2 × peu commune, 1 × {rare 2, holo 1} |
+| Série Noir & Blanc (un booster par set) | 3 × commune, 1 × peu commune, 1 × variante {commune 55, peu commune 30, rare 15}, 1 × {rare 853, holo/EX 120, ultra 20, secrète 7} |
+| Coffre des Dragons | 4 × holo, 1 × {holo 993, secrète 7} |
+| 151, Évolutions Prismatiques | 3 × commune, 1 × peu commune, 1 × variante {commune 590, peu commune 300, ultra 80, secrète 30}, 1 × {rare 770, holo 150, ultra 65, secrète 15} |
+| Légendaire (5 sets, 4 cartes) | 1 × holo, 1 × {holo 70, ultra 30}, 2 × {ultra 75, secrète 25} |
 
-Une rareté absente des sets du booster est ignorée (les anciens sets n'ont pas d'ultra rare). `GET
+Une rareté absente des sets du booster est ignorée (les anciens sets n'ont pas d'ultra rare ; les trois premiers
+sets Noir & Blanc n'ont pas d'EX). Probabilités qui en résultent (au moins une carte par booster) :
+
+| Booster | Holo / EX | Ultra rare | Secrète |
+|---------|-----------|------------|---------|
+| Set de Base, Jungle, Fossile | 1 sur 3 | – | – |
+| Série Noir & Blanc | 1 sur 8 (EX, à partir de Destinées Futures) | 1 sur 44 à 50 | 1 sur 125 à 143 |
+| Coffre des Dragons | toujours | – | 1 sur 143 |
+| 151, Évolutions Prismatiques | 1 sur 7 | 1 sur 7 | 1 sur 22 |
+| Légendaire | toujours | 95,6 % | 43,8 % |
+
+Les boosters Écarlate et Violet suivent les taux constatés sur les vrais paquets ; ceux de la série Noir & Blanc
+rendent volontairement les ultra rares (full art) et les « magnifiques rares » plus difficiles à obtenir. Pour
+cette série, TCGdex ne distingue pas les holos des rares : les cartes EX forment le palier `HOLO` (libellé
+`Rare EX`). `GET
 /api/shop/boosters` publie pour chaque rareté la probabilité d'en obtenir au moins une par booster :
 `1 − Π (1 − p_emplacement)`. Sur 20 000 tirages simulés, l'écart entre fréquence observée et probabilité publiée
 est resté sous 0,5 point.
@@ -71,8 +101,11 @@ est resté sous 0,5 point.
 ## Collection
 
 - Une ligne `collection_items` par carte possédée, avec le nombre d'exemplaires.
-- `GET /api/shop/collection` : cartes différentes possédées sur 609, exemplaires, valeur au prix de la boutique,
-  avancement par set. La page Collection affiche toutes les cartes du set choisi, les manquantes en grisé avec
+- `GET /api/shop/collection` : cartes différentes possédées sur 1 797, exemplaires, valeur au prix de la boutique,
+  avancement par set, et nombre de boosters ouverts par type (calculé sur `booster_openings`, avec les
+  PokéDollars dépensés). La page Collection affiche ces boosters (« Mes boosters » : totaux visibles, détail
+  par booster replié par défaut), regroupe les sets par série et affiche toutes les cartes du set choisi, de la moins rare
+  à la plus rare (ou par numéro), les manquantes en grisé avec
   un lien pour les acheter à l'unité.
 
 ## Annulation d'une commande et PokéDollars

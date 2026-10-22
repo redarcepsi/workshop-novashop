@@ -11,8 +11,8 @@ réelles de bout en bout. **Aucun paiement réel, aucune donnée bancaire réell
   bancaire, des cartes à l'unité (cher) ou des **PokéDollars** (monnaie virtuelle) ; les PokéDollars servent à
   ouvrir des **boosters**, tirés au sort par le serveur ; chaque client a sa **collection**.
 
-Les noms et caractéristiques des 609 cartes (5 sets : Set de Base, Jungle, Fossile, 151, Évolutions
-Prismatiques) viennent de l'API publique [TCGdex](https://tcgdex.dev), en français. Ils sont enregistrés dans
+Les noms et caractéristiques des 1 797 cartes (16 sets : Set de Base, Jungle, Fossile ; toute la série Noir &
+Blanc, de Noir & Blanc à Explosion Plasma ; 151, Évolutions Prismatiques) viennent de l'API publique [TCGdex](https://tcgdex.dev), en français. Ils sont enregistrés dans
 `services/shop-service/app/data/cards.json` (généré par `tools/fetch_pokemon_cards.py`) : shop-service reste sur
 des réseaux sans accès à Internet. Les **images** ne sont pas téléchargées : le navigateur les charge chez TCGdex
 (`assets.tcgdex.net`). Sur un poste sans Internet, une carte de secours dessinée en CSS s'affiche à la place.
@@ -136,8 +136,9 @@ Conséquences, vérifiées sur la stack (sous Docker Desktop, avant le passage s
   À la connexion, il est fusionné dans le panier serveur (`POST /cart/merge`).
 - **Isolation réseau** : Postgres n'est que sur le réseau `backend` ; le frontend ne peut pas l'atteindre.
 - Images Python non-root avec `HEALTHCHECK` ; `depends_on: service_healthy` orchestre le démarrage.
-- Le catalogue (609 cartes vendues à l'unité, prix et stock selon la rareté ; 4 lots de PokéDollars ; 6 boosters)
-  est inséré automatiquement au premier démarrage, ainsi que les comptes de démo.
+- Le catalogue (1 797 cartes vendues à l'unité, prix et stock selon la rareté ; 4 lots de PokéDollars ; 17 boosters)
+  est inséré automatiquement au premier démarrage, ainsi que les comptes de démo. Aux démarrages suivants, les
+  sets et boosters ajoutés depuis sont insérés à leur tour, sans toucher aux comptes, porte-monnaie ni collections.
 
 ## Démarrage
 
@@ -364,9 +365,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 | `/`              | Accueil : cartes d'exception, boosters, lots de PokéDollars, sets |
 | `/cards`         | Cartes à l'unité : recherche, set, rareté, type, catégorie, tri, pagination |
 | `/cards/:slug`   | Fiche d'une carte : carte holographique, rareté, stock, ajout au panier, booster du set |
-| `/boosters`      | Boosters : prix en PokéDollars, probabilités, ouverture animée (connexion requise pour ouvrir) |
+| `/boosters`      | Boosters : prix en PokéDollars, probabilités, ouverture animée : paquet à déchirer, cartes retournées une à une (connexion requise pour ouvrir) |
 | `/pokedollars`   | Lots de PokéDollars, solde et historique des mouvements           |
-| `/collection`    | Collection : avancement global et par set, valeur, cartes manquantes en grisé (connexion requise) |
+| `/collection`    | Collection : avancement global et par set, valeur, cartes du moins rare au plus rare, manquantes en grisé (connexion requise) |
 | `/cart`          | Panier : quantités, suppression, ce qui sera livré                |
 | `/checkout`      | Paiement par carte via la plateforme (connexion requise)          |
 | `/orders`        | Historique des commandes                                          |
@@ -397,6 +398,7 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 | GET     | `/products/{slug}`           | –    | Détail d'un produit (carte ou lot de PokéDollars)      |
 | GET     | `/boosters`                  | –    | Boosters, prix en PokéDollars, probabilités par rareté |
 | POST    | `/boosters/{slug}/open`      | JWT  | Payer en PokéDollars et ouvrir (409 solde insuffisant ; `Idempotency-Key` facultative) |
+| POST    | `/boosters/{slug}/open-batch` | JWT | Payer et ouvrir jusqu'à 5 boosters d'un coup (`count`, défaut 5 ; tout ou rien) |
 | POST    | `/cart/quote`                | –    | Chiffrer un panier invité                              |
 | GET     | `/cart`                      | JWT  | Mon panier (totaux calculés)                           |
 | POST    | `/cart/items`                | JWT  | Ajouter un article (409 si stock insuffisant)          |

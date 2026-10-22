@@ -20,6 +20,7 @@ jeton valide : 401 `Jeton invalide ou expiré`.
 | GET | `/api/shop/products/{slug}` | – | Détail d'un produit |
 | GET | `/api/shop/boosters` | – | Boosters, prix en PokéDollars et probabilités |
 | POST | `/api/shop/boosters/{slug}/open` | JWT | Payer un booster en PokéDollars et l'ouvrir |
+| POST | `/api/shop/boosters/{slug}/open-batch` | JWT | Payer et ouvrir jusqu'à 5 boosters d'un coup |
 | POST | `/api/shop/cart/quote` | – | Chiffrer un panier invité |
 | GET | `/api/shop/cart` | JWT | Mon panier |
 | POST | `/api/shop/cart/items` | JWT | Ajouter un article |
@@ -32,7 +33,7 @@ jeton valide : 401 `Jeton invalide ou expiré`.
 | GET | `/api/shop/orders/{id}` | JWT | Détail d'une commande |
 | POST | `/api/shop/orders/{id}/cancel` | JWT | Annuler et rembourser (appelle payment-service) |
 | GET | `/api/shop/wallet` | JWT | Solde de PokéDollars et derniers mouvements |
-| GET | `/api/shop/collection` | JWT | Cartes possédées, avancement par set, valeur |
+| GET | `/api/shop/collection` | JWT | Cartes possédées, avancement par set, valeur, boosters ouverts |
 | GET | `/api/shop/health` | – | Sonde de santé |
 | GET | `/metrics` | – | Métriques Prometheus, hors préfixe : relayée par `metrics-gateway` seulement |
 
@@ -40,8 +41,9 @@ Les anciennes routes de NovaShop `/api/shop/categories` et `/api/shop/media/{slu
 
 ## Catalogue de shop-service
 
-Les cartes viennent de l'API publique **TCGdex** (tcgdex.dev), en français : 5 sets (Set de Base, Jungle,
-Fossile, 151, Évolutions Prismatiques), 609 cartes (les énergies de base sont exclues). Noms et caractéristiques
+Les cartes viennent de l'API publique **TCGdex** (tcgdex.dev), en français : 16 sets (Set de Base, Jungle,
+Fossile ; les 11 sets de la série Noir & Blanc ; 151, Évolutions Prismatiques), 1 797 cartes (les énergies de
+base sont exclues). Noms et caractéristiques
 sont enregistrés dans `services/shop-service/app/data/cards.json`, généré par `tools/fetch_pokemon_cards.py` :
 `shop-service` n'a pas besoin d'Internet. Les **images** restent chez TCGdex : le navigateur les charge
 directement depuis `assets.tcgdex.net`. Sans accès à Internet côté poste client, le site affiche une carte de
@@ -49,9 +51,15 @@ secours dessinée en CSS (nom, PV, set, numéro).
 
 ### GET /api/shop/sets
 
-Les sets, dans l'ordre de sortie : `[{"id": "base1", "name": "Set de Base", "serie": "Base",
+Les sets, par série puis par date de sortie : `[{"id": "base1", "name": "Set de Base", "serie": "Base",
 "release_date": "1999-01-09", "logo_url": "https://assets.tcgdex.net/…/logo", "card_count": 96}, …]`.
-Identifiants : `base1`, `base2`, `base3`, `sv03.5`, `sv08.5`.
+Identifiants : `base1`, `base2`, `base3`, `bw1` à `bw6`, `dv1` (Coffre des Dragons), `bw7` à `bw10`, `sv03.5`,
+`sv08.5`. Le champ `serie` (`Base`, `Noir & Blanc`, `Écarlate et Violet`) figure aussi dans le `set` de chaque
+carte et de chaque booster.
+
+Paliers de rareté (`rarity`) : pour la série Noir & Blanc, TCGdex ne distingue pas les holos des rares. Les cartes
+EX y forment le palier `HOLO` (libellé `Rare EX`), les full art le palier `ULTRA`, les « Magnifique rare » le
+palier `SECRET`. Toutes les cartes du Coffre des Dragons sont holo ; Kyurem (21/20) en est la carte secrète.
 
 ### GET /api/shop/sets/{set_id}/cards
 
@@ -73,7 +81,7 @@ Recherche dans le catalogue public. Paramètres de requête, tous facultatifs :
   `number` (ordre du set), `name`, `newest` ;
 - `limit` : 1 à 100, défaut 24 ; `offset` : défaut 0.
 
-Réponse : `{"items": [produit, …], "total": 609, "limit": 24, "offset": 0}`. Valeur hors bornes : 422.
+Réponse : `{"items": [produit, …], "total": 1797, "limit": 24, "offset": 0}`. Valeur hors bornes : 422.
 
 ### GET /api/shop/products/{slug}
 
@@ -82,9 +90,10 @@ Détail d'un produit, par exemple `/api/shop/products/base1-4-dracaufeu` (Dracau
 
 ### Prix des cartes à l'unité
 
-Fixés au premier démarrage selon la rareté : commune 1,49 €, peu commune 2,99 €, rare 6,99 €, holo 17,99 €,
+Fixés à l'insertion de la carte, selon la rareté : commune 1,49 €, peu commune 2,99 €, rare 6,99 €, holo 17,99 €,
 ultra rare 34,99 €, secrète 79,99 € ; × 1,6 pour les Pokémon les plus recherchés ; quelques « graals » à prix
-fixe (Dracaufeu du Set de Base 249,99 €, Noctali-ex illustration spéciale 349,99 €). Stock limité (1 exemplaire
+fixe (Dracaufeu du Set de Base 249,99 €, Noctali-ex illustration spéciale 349,99 €, Dracaufeu chromatique de
+Tempête Plasma 149,99 €). Stock limité (1 exemplaire
 pour les secrètes), quelques ruptures et promotions. L'achat direct est donc cher comparé à un booster.
 
 ### Lots de PokéDollars
@@ -106,17 +115,27 @@ Les boosters se paient en **PokéDollars**, jamais par carte bancaire : leur ouv
 
 ### GET /api/shop/boosters
 
+17 boosters, un par set, plus le Légendaire :
+
 | Slug | Prix | Sets | Contenu |
 |------|------|------|---------|
 | `set-de-base` | 300 | `base1` | 6 cartes : 3 communes, 2 peu communes, 1 rare (holo 1 fois sur 3) |
 | `jungle` | 250 | `base2` | idem |
 | `fossile` | 250 | `base3` | idem |
+| `noir-et-blanc` | 300 | `bw1` | 6 cartes : 3 communes, 1 peu commune, 1 variante, 1 rare ou mieux |
+| `pouvoirs-emergents`, `nobles-victoires`, `destinees-futures`, `explorateurs-obscurs`, `dragons-exaltes` | 300 | `bw2` à `bw6` | idem |
+| `coffre-des-dragons` | 500 | `dv1` | 5 cartes holo (Kyurem, la carte secrète, 1 fois sur 143) |
+| `frontieres-franchies`, `tempete-plasma`, `glaciation-plasma`, `explosion-plasma` | 300 | `bw7` à `bw10` | 6 cartes : 3 communes, 1 peu commune, 1 variante, 1 rare ou mieux |
 | `151` | 400 | `sv03.5` | 6 cartes : 3 communes, 1 peu commune, 1 variante, 1 rare ou mieux |
 | `evolutions-prismatiques` | 450 | `sv08.5` | idem |
-| `legendaire` | 1 500 | les 5 sets | 5 cartes holo ou mieux, dont une ultra rare ou mieux |
+| `legendaire` | 3 500 | `base1` à `base3`, `sv03.5`, `sv08.5` | 4 cartes holo ou mieux, dont deux ultra rares ou secrètes |
 
 Chaque booster renvoie `odds` : la probabilité d'obtenir au moins une carte de chaque rareté, calculée à partir
-des poids de tirage (ex. Set de Base : holo 33,3 %).
+des poids de tirage (ex. Set de Base : holo 33,3 %). Les sets de chaque booster ont un champ `serie`, avec lequel
+le front regroupe la page Boosters (un booster de plusieurs sets est classé « Édition premium »).
+
+Prix, contenu et poids des boosters sont relus dans `seed.py` à chaque démarrage de `shop-service` : les modifier
+ne demande qu'un redémarrage. Les ouvertures déjà faites gardent le prix payé (`booster_openings.price`).
 
 ### POST /api/shop/boosters/{slug}/open
 
@@ -132,11 +151,26 @@ Réponse 201 : `{"id", "booster": {"slug", "name"}, "price", "balance", "cards":
   booster` ;
 - 422 : `Idempotency-Key` qui n'est pas un UUID.
 
+### POST /api/shop/boosters/{slug}/open-batch
+
+Ouvre plusieurs boosters identiques d'un coup : paramètre `count` (1 à 5, défaut 5). Une seule transaction :
+tous les boosters sont payés et ouverts, ou aucun. Si le solde ne couvre pas tout le lot, 409 et rien n'est
+débité, même si un booster seul passerait. Une ligne `wallet_entries` et une ligne `booster_openings` par booster.
+Une carte n'est « nouvelle » (`is_new`) qu'une fois dans le lot.
+
+`Idempotency-Key` facultatif, comme pour l'ouverture simple : le serveur en dérive une clé par booster (UUID v5),
+une requête rejouée renvoie les mêmes ouvertures sans redébiter.
+
+Réponse 201 : `{"booster": {"slug", "name"}, "count", "price" (total débité), "balance", "openings": [ouverture,
+…]}`, chaque ouverture au format de `POST /open`. Erreurs : celles de l'ouverture simple, plus 422 si `count`
+sort de 1 à 5. Le front s'en sert pour le bouton « × 5 » de la page Boosters.
+
 ## Panier de shop-service
 
 Le prix, le stock et les totaux sont toujours recalculés par `shop-service` à partir de la base, jamais
-repris du navigateur. Quantité par article : 1 à 10 (`max_quantity_per_item`). Tout est numérique : pas de
-frais de port. Toutes les routes du panier renvoient le panier complet à jour.
+repris du navigateur. Quantité par article : 1 à 10 pour une carte (`max_quantity_per_item`) ; pour un lot de
+PokéDollars, pas de limite commerciale, seulement un plafond technique de 9 999 (`max_pokedollar_packs_per_item`).
+Tout est numérique : pas de frais de port. Toutes les routes du panier renvoient le panier complet à jour.
 
 ### POST /api/shop/cart/quote
 
@@ -154,7 +188,7 @@ Panier de l'utilisateur connecté : lignes, `total`, et ce qui sera livré au pa
 Ajoute un article : corps `{"product_id": 1, "quantity": 1}`. La quantité s'ajoute à celle déjà présente.
 
 - 404 : `Produit introuvable`.
-- 409 : `Maximum 10 exemplaires par article`, `Stock insuffisant pour « <nom> » : plus que N exemplaire(s)` ou
+- 409 : `Maximum N exemplaires par article` (10 pour une carte, 9999 pour un lot de PokéDollars), `Stock insuffisant pour « <nom> » : plus que N exemplaire(s)` ou
   `« <nom> » est en rupture de stock`.
 
 ### PATCH /api/shop/cart/items/{product_id}
@@ -225,9 +259,10 @@ plateforme injoignable, la commande reste payée. Déroulé : `processus-annulat
 
 ### GET /api/shop/collection
 
-`distinct` (cartes différentes), `copies` (exemplaires), `total` (609), `value` (valeur au prix de la
-boutique), `sets` (`id`, `name`, `logo_url`, `owned`, `total` par set), `items` (`card`, `quantity`,
-`first_obtained_at`).
+`distinct` (cartes différentes), `copies` (exemplaires), `total` (1 797), `value` (valeur au prix de la
+boutique), `sets` (`id`, `name`, `logo_url`, `owned`, `total` par set), `boosters` (boosters ouverts, du plus
+acheté au moins acheté : `slug`, `name`, `card_count`, `sets`, `cover`, `colors`, `opened`, `spent` en
+PokéDollars, `last_opened_at`), `items` (`card`, `quantity`, `first_obtained_at`).
 
 ## Système et documentation de shop-service
 

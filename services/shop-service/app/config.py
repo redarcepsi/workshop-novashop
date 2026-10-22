@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     payment_attempts: int = 2     # sans risque de double débit grâce à la clé d'idempotence
 
     # Règles métier
-    max_quantity_per_item: int = 10
+    max_quantity_per_item: int = 10  # cartes à l'unité
+    # Lots de PokéDollars : pas de limite commerciale. Ce plafond technique garde une commande sous les limites des
+    # colonnes en base (total < 100 millions d'euros, PokéDollars < 2^31)
+    max_pokedollar_packs_per_item: int = 9999
 
     # Insère le catalogue (cartes, lots de PokéDollars, boosters) si la table des cartes est vide
     seed_catalog: bool = True

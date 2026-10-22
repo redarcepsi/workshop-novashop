@@ -10,7 +10,9 @@ import { useAuth } from './AuthContext.jsx'
  */
 
 const GUEST_KEY = 'pokebling_guest_cart'
-const MAX_QTY = 10
+
+/** Comme shop-service : 10 exemplaires d'une carte ; lots de PokéDollars sans limite, hors plafond technique. */
+export const maxQuantity = (product) => (product.kind === 'POKEDOLLARS' ? 9999 : 10)
 
 export const EMPTY_CART = {
   items: [],
@@ -47,7 +49,7 @@ async function saveGuest(items) {
 
 // stock null : illimité (lots de PokéDollars)
 function stockError(product, wanted) {
-  if (wanted > MAX_QTY) return `Maximum ${MAX_QTY} exemplaires par article`
+  if (wanted > maxQuantity(product)) return `Maximum ${maxQuantity(product)} exemplaires par article`
   if (product.stock != null && wanted > product.stock) {
     return product.stock
       ? `Stock insuffisant : plus que ${product.stock} exemplaire(s)`

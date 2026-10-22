@@ -20,7 +20,8 @@ flowchart TD
 ## Panier d'un visiteur non connecté
 
 1. À chaque ajout, le front lit `pokebling_guest_cart` dans `localStorage` (lignes `{product_id, quantity}`).
-2. Il vérifie localement le plafond de 10 exemplaires et le stock connu de la fiche produit.
+2. Il vérifie localement le plafond (10 exemplaires d'une carte, 9 999 lots de PokéDollars) et le stock connu de
+   la fiche produit.
 3. Il appelle `POST /api/shop/cart/quote` avec les lignes : `shop-service` renvoie prix, stocks et total
    réels, et ce qui sera livré (PokéDollars, nombre de cartes). Rien n'est écrit en base.
 4. Le front enregistre les nouvelles lignes dans `localStorage` et affiche le panier chiffré.
@@ -46,8 +47,10 @@ panier complet recalculé.
 ## Règles de calcul du panier
 
 - **Prix et stock** : toujours lus en base par `shop-service`.
-- **Quantité** : 1 à 10 par article (`max_quantity_per_item`). Au-delà : 409
-  `Maximum 10 exemplaires par article`.
+- **Quantité** : 1 à 10 exemplaires d'une même carte (`max_quantity_per_item`). Les lots de PokéDollars n'ont pas
+  de limite commerciale, seulement un plafond technique de 9 999 par ligne (`max_pokedollar_packs_per_item`), qui
+  garde le total d'une commande sous les limites des colonnes en base. Au-delà : 409
+  `Maximum N exemplaires par article`. Dans le panier, la quantité se règle avec − / + ou se saisit au clavier.
 - **Stock** : une quantité supérieure au stock est refusée à l'ajout ou à la modification (409). Si le stock
   baisse après coup, la ligne reste dans le panier avec `available: false` et bloque le paiement.
 - **Ligne** : `line_total = prix × quantité`, arrondi au centime.

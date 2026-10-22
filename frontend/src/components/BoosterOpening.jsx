@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { shopApi } from '../api.js'
 import { useWallet } from '../context/WalletContext.jsx'
 import { RARITIES, rarityRank } from '../utils/cards.js'
@@ -9,70 +9,215 @@ import Icon from './Icon.jsx'
 import PokemonCard, { CardBack } from './PokemonCard.jsx'
 import { Alert, Button, ButtonLink, PD, RarityBadge } from './ui.jsx'
 
-const SHAKE_MS = 1100
-const TEAR_MS = 900
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
+const CHARGE_MS = 900 // le paquet se charge pendant le tirage (durée minimale)
+const TEAR_MS = 1300 // bande arrachée, lumière, chute du paquet
+const SUSPENSE_MS = { HOLO: 650, ULTRA: 1000, SECRET: 1400 } // montée en tension avant une carte rare
+const CUT_TO_OPEN = 0.6 // part de la ligne de découpe à parcourir du doigt pour ouvrir
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const clamp = (v) => Math.max(0, Math.min(1, v))
+const glowOf = (card) => RARITIES[card.rarity].glow
 
-function RevealCard({ entry, flipped, onFlip, index }) {
-  const { card, is_new: isNew } = entry
-  const rank = rarityRank(card.rarity)
-  const glow = flipped && rank >= rarityRank('RARE') ? RARITIES[card.rarity].glow : null
+// Étincelles de l'éclat (angle, distance, délai) et désordre de la pile : identiques à chaque ouverture
+const PARTICLES = Array.from({ length: 18 }, (_, i) => ({ a: i * 20 + ((i * 7) % 9), d: 110 + ((i * 37) % 90), delay: (i % 3) * 60 }))
+const jitter = (i) => (((i * 47) % 9) - 4) * 0.7
 
+function Burst({ color }) {
   return (
-    <div className="w-[30%] max-w-[13rem] animate-pop-in sm:w-[15%]" style={{ animationDelay: `${index * 70}ms` }}>
-      <button
-        type="button"
-        className={`flip relative block w-full ${glow ? 'reveal-glow' : ''}`}
-        style={glow ? { '--glow': glow } : undefined}
-        data-flipped={flipped}
-        onClick={onFlip}
-        aria-label={flipped ? card.name : `Révéler la carte ${index + 1}`}
-      >
-        <div className="flip-inner">
-          <div className="flip-face transition hover:brightness-110">
-            <CardBack className="h-full w-full" />
-          </div>
-          <div className="flip-face flip-front">
-            {/* Rendue dès le début, face cachée : l'image est déjà chargée quand la carte se retourne */}
-            <PokemonCard card={card} quality="high" className="h-full w-full" />
-          </div>
-        </div>
-      </button>
-      <div className={`mt-2 flex min-h-[2.75rem] flex-col items-center gap-1 text-center transition ${flipped ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="flex items-center gap-1.5">
-          {isNew && (
-            <span className="rounded-full bg-gold-400 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-night-950">
-              Nouveau
-            </span>
-          )}
-          <RarityBadge rarity={card.rarity} />
-        </div>
-        <p className="w-full truncate text-xs font-medium text-night-100">{card.name}</p>
-      </div>
+    <div className="burst" style={{ '--glow': color }} aria-hidden="true">
+      <div className="burst-rays" />
+      <div className="burst-ring" />
+      {PARTICLES.map((p, i) => (
+        <span key={i} className="burst-particle" style={{ '--a': `${p.a}deg`, '--d': `${p.d}px`, animationDelay: `${p.delay}ms` }} />
+      ))}
     </div>
   )
 }
 
 /**
- * Ouverture d'un booster en plein écran : on touche le paquet, il tremble pendant que le serveur tire les cartes,
- * se déchire, puis les cartes arrivent face cachée et se retournent une à une (la plus rare en dernier).
+ * Le paquet : il suit le pointeur, s'ouvre d'un geste le long de la ligne de découpe ou d'une simple touche.
+ * `behind` : paquets encore à ouvrir (ouverture groupée), empilés derrière lui.
  */
-export default function BoosterOpening({ booster, onClose }) {
+function Pack({ booster, phase, onOpen, behind = 0 }) {
+  const ref = useRef(null)
+  const drag = useRef(null)
+  const suppressClick = useRef(false)
+  const [cut, setCut] = useState(0)
+  const [tilt, setTilt] = useState([0, 0])
+  const ready = phase === 'ready'
+
+  const onPointerDown = (e) => {
+    if (!ready) return
+    drag.current = { x: e.clientX, moved: false }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  const onPointerMove = (e) => {
+    if (!ready) return
+    const rect = ref.current.getBoundingClientRect()
+    setTilt([((e.clientY - rect.top) / rect.height - 0.5) * -14, ((e.clientX - rect.left) / rect.width - 0.5) * 18])
+    if (!drag.current) return
+    const dx = e.clientX - drag.current.x
+    if (Math.abs(dx) > 8) drag.current.moved = true
+    const progress = clamp(dx / (rect.width * 0.9))
+    setCut(progress)
+    if (progress >= CUT_TO_OPEN) {
+      drag.current = null
+      setCut(1)
+      onOpen()
+    }
+  }
+  const endDrag = () => {
+    if (drag.current?.moved) suppressClick.current = true // geste inachevé : ce n'est pas une touche
+    drag.current = null
+    if (ready) setCut(0)
+  }
+  const onClick = () => {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
+    if (ready) onOpen()
+  }
+
+  const stage = ready ? 'ready' : phase === 'opening' ? 'charging' : 'torn'
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onPointerLeave={() => ready && setTilt([0, 0])}
+      disabled={!ready}
+      aria-label="Ouvrir le booster"
+      className={`pack-stage relative w-56 touch-none sm:w-64 ${ready ? 'cursor-grab active:cursor-grabbing' : ''}`}
+    >
+      {Array.from({ length: Math.min(behind, 4) }, (_, i) => (
+        <div
+          key={i}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 transition-transform duration-500"
+          style={{ transform: `translate(${(i + 1) * 12}px, ${(i + 1) * -8}px) rotate(${(i + 1) * 3}deg)`, filter: `brightness(${0.75 - i * 0.1})` }}
+        >
+          <BoosterPack booster={booster} className="w-full" />
+        </div>
+      ))}
+      <div className={ready ? 'animate-float' : phase === 'opening' ? 'pack-charging' : 'pack-drop'}>
+        <div className="pack-tilt" style={{ '--tx': `${tilt[0]}deg`, '--ty': `${tilt[1]}deg` }}>
+          <BoosterPack booster={booster} stage={stage} cut={cut} className="w-full drop-shadow-[0_30px_40px_rgba(0,0,0,0.55)]" />
+        </div>
+      </div>
+    </button>
+  )
+}
+
+/**
+ * Ouverture d'un booster en plein écran. Le client découpe le haut du paquet (ou le touche) ; le paquet se charge
+ * pendant que le serveur tire les cartes, se déchire, et les cartes sortent en pile, face cachée. Chaque touche
+ * retourne la carte suivante (la plus rare en dernier) ; avant une carte holo ou mieux, la pile tremble aux couleurs
+ * de sa rareté. Un récapitulatif termine l'ouverture.
+ *
+ * `count` > 1 : ouverture groupée. Tous les boosters sont payés et tirés en une requête ; le client les déchire
+ * ensuite l'un après l'autre, puis un récapitulatif rassemble toutes les cartes.
+ */
+export default function BoosterOpening({ booster, count = 1, onClose }) {
   const { balance, setBalance } = useWallet()
-  const [phase, setPhase] = useState('ready') // ready → opening → tearing → reveal (ou error)
+  const [phase, setPhase] = useState('ready') // ready → opening → tearing → reveal → (ready…) → summary (ou error)
   // Une clé par ouverture : rejouée telle quelle après une erreur réseau, le serveur ne débite qu'une fois
   const [requestId, setRequestId] = useState(() => uuid())
-  const [result, setResult] = useState(null)
-  const [flipped, setFlipped] = useState([])
+  const [batch, setBatch] = useState(null) // { openings, balance } : réponse du serveur
+  const [current, setCurrent] = useState(0) // booster en cours, dans le lot
+  const [step, setStep] = useState(0) // cartes retournées
+  const [cleared, setCleared] = useState(0) // cartes déjà parties dans la réserve
+  const [suspense, setSuspense] = useState(false)
   const [error, setError] = useState('')
+  const stackRef = useRef(null)
 
   const busy = phase === 'opening' || phase === 'tearing'
+  const cards = batch?.openings[current]?.cards ?? []
+  const n = cards.length
+  const last = current >= count - 1
 
   const close = useCallback(() => !busy && onClose(), [busy, onClose])
 
+  const tear = async () => {
+    setPhase('tearing')
+    await wait(reducedMotion() ? 250 : TEAR_MS)
+    setPhase('reveal')
+  }
+
+  const open = async () => {
+    // Booster suivant d'un lot : ses cartes sont déjà tirées, il ne reste qu'à le déchirer
+    if (batch) return tear()
+    setError('')
+    setPhase('opening')
+    try {
+      const request =
+        count > 1
+          ? shopApi.openBoosters(booster.slug, count, requestId)
+          : shopApi.openBooster(booster.slug, requestId).then((o) => ({ openings: [o], balance: o.balance }))
+      const [res] = await Promise.all([request, wait(reducedMotion() ? 0 : CHARGE_MS)])
+      setBatch(res)
+      setCurrent(0)
+      setStep(0)
+      setCleared(0)
+      setBalance(res.balance)
+      await tear()
+    } catch (e) {
+      setError(e.message)
+      setPhase('error')
+    }
+  }
+
+  const advance = useCallback(async () => {
+    if (phase !== 'reveal' || suspense) return
+    if (step >= n) {
+      if (last) {
+        setPhase('summary')
+      } else {
+        setCurrent((c) => c + 1)
+        setStep(0)
+        setCleared(0)
+        setPhase('ready')
+      }
+      return
+    }
+    // La carte vue part dans la réserve ; la suivante se retourne, après un temps de suspense si elle est rare
+    setCleared(step)
+    const delay = reducedMotion() ? 0 : SUSPENSE_MS[cards[step].card.rarity] ?? 0
+    if (delay) {
+      setSuspense(true)
+      await wait(delay)
+      setSuspense(false)
+    }
+    setStep((s) => Math.max(s, step + 1)) // « Tout révéler » a pu passer pendant le suspense
+  }, [phase, suspense, step, n, cards, last])
+
+  const revealAll = () => {
+    setStep(n)
+    setCleared(n)
+    setSuspense(false)
+    setPhase('summary')
+  }
+
+  const again = () => {
+    setRequestId(uuid())
+    setBatch(null)
+    setCurrent(0)
+    setStep(0)
+    setCleared(0)
+    setPhase('ready')
+  }
+
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && close()
+    const onKey = (e) => {
+      if (e.key === 'Escape') close()
+      if (e.key === 'ArrowRight') advance()
+    }
     document.addEventListener('keydown', onKey)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -80,55 +225,44 @@ export default function BoosterOpening({ booster, onClose }) {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
     }
-  }, [close])
+  }, [close, advance])
 
-  const open = async () => {
-    setError('')
-    setPhase('opening')
-    try {
-      const [res] = await Promise.all([shopApi.openBooster(booster.slug, requestId), wait(SHAKE_MS)])
-      setResult(res)
-      setFlipped(res.cards.map(() => false))
-      setBalance(res.balance)
-      setPhase('tearing')
-      await wait(TEAR_MS)
-      setPhase('reveal')
-    } catch (e) {
-      setError(e.message)
-      setPhase('error')
-    }
-  }
+  useEffect(() => {
+    if (phase === 'reveal') stackRef.current?.focus({ preventScroll: true })
+  }, [phase])
 
-  const again = () => {
-    setRequestId(uuid())
-    setResult(null)
-    setFlipped([])
-    setPhase('ready')
-  }
-
-  const flip = (i) => setFlipped((f) => f.map((v, j) => (j === i ? true : v)))
-  const revealAll = async () => {
-    for (let i = 0; i < flipped.length; i++) {
-      if (flipped[i]) continue
-      flip(i)
-      await wait(180)
-    }
-  }
-
-  const allFlipped = flipped.length > 0 && flipped.every(Boolean)
   const summary = useMemo(() => {
-    if (!result) return null
-    const best = result.cards.reduce((a, b) => (rarityRank(b.card.rarity) > rarityRank(a.card.rarity) ? b : a))
-    return { newCount: result.cards.filter((c) => c.is_new).length, best: best.card }
-  }, [result])
-  const canAffordAgain = balance != null && balance >= booster.price
+    if (!batch) return null
+    // Un seul booster : ordre de révélation. Un lot : toutes les cartes, de la plus rare à la moins rare
+    const all = batch.openings.flatMap((o) => o.cards)
+    const shown = count > 1 ? [...all].sort((a, b) => rarityRank(b.card.rarity) - rarityRank(a.card.rarity)) : all
+    const bestIndex = shown.reduce((best, c, i) => (rarityRank(c.card.rarity) > rarityRank(shown[best].card.rarity) ? i : best), 0)
+    return { cards: shown, newCount: all.filter((c) => c.is_new).length, bestIndex, best: shown[bestIndex].card }
+  }, [batch, count])
+  const canAffordAgain = balance != null && balance >= booster.price * count
+
+  const top = step > cleared ? cards[step - 1] : null // carte face visible sur la pile
+  const topRank = top ? rarityRank(top.card.rarity) : -1
+  const pending = suspense ? cards[step] : null // carte qui va se retourner
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col overflow-y-auto bg-night-950/95 backdrop-blur-md animate-fade-in" role="dialog" aria-modal="true" aria-label={`Ouverture : ${booster.name}`}>
-      <div className="pointer-events-none fixed inset-0" style={{ background: `radial-gradient(40rem 30rem at 50% 40%, ${booster.colors[0]}33, transparent 70%)` }} />
+    <div className="fixed inset-0 z-50 flex flex-col overflow-y-auto overflow-x-hidden bg-night-950/95 backdrop-blur-md animate-fade-in" role="dialog" aria-modal="true" aria-label={`Ouverture : ${booster.name}`}>
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute inset-0" style={{ background: `radial-gradient(40rem 30rem at 50% 42%, ${booster.colors[0]}40, transparent 70%)` }} />
+        {phase !== 'summary' && <div className={`opening-rays ${busy ? 'is-intense' : ''}`} style={{ '--ray': booster.colors[0] }} />}
+      </div>
+      {phase === 'tearing' && <div className="screen-flash" style={{ '--flash': `${booster.colors[0]}` }} aria-hidden="true" />}
+      {top?.card.rarity === 'SECRET' && <div key={step} className="screen-flash" style={{ '--flash': RARITIES.SECRET.glow }} aria-hidden="true" />}
 
       <div className="container-page relative flex items-center justify-between py-5">
-        <p className="font-display text-lg font-semibold text-white">{booster.name}</p>
+        <p className="font-display text-lg font-semibold text-white">
+          {booster.name}
+          {count > 1 && (
+            <span className="ml-2 rounded-full bg-white/10 px-2.5 py-0.5 align-middle text-sm font-medium text-night-200">
+              {phase === 'summary' ? `× ${count}` : `${current + 1} / ${count}`}
+            </span>
+          )}
+        </p>
         <div className="flex items-center gap-3">
           {balance != null && <PD amount={balance} className="rounded-full bg-white/5 px-3 py-1.5 text-sm text-gold-200 ring-1 ring-white/10" />}
           <button onClick={close} disabled={busy} aria-label="Fermer" className="rounded-full p-2 text-night-300 transition hover:bg-white/10 hover:text-white disabled:opacity-30">
@@ -138,24 +272,35 @@ export default function BoosterOpening({ booster, onClose }) {
       </div>
 
       <div className="container-page relative flex flex-1 flex-col items-center justify-center pb-10">
+        {/* ------------------------------------------------ le paquet */}
         {(phase === 'ready' || phase === 'opening' || phase === 'tearing' || phase === 'error') && (
           <div className="flex flex-col items-center">
-            <button
-              type="button"
-              onClick={phase === 'ready' ? open : undefined}
-              disabled={phase !== 'ready'}
-              aria-label="Ouvrir le booster"
-              className={`w-52 sm:w-64 ${phase === 'ready' ? 'animate-float cursor-pointer' : ''} ${phase === 'opening' ? 'animate-shake' : ''} ${phase === 'tearing' ? 'pack-drop' : ''}`}
-            >
-              <BoosterPack booster={booster} tearing={phase === 'tearing'} className="w-full" />
-            </button>
+            <Pack
+              booster={booster}
+              phase={phase === 'error' ? 'ready' : phase}
+              onOpen={phase === 'error' ? () => {} : open}
+              behind={count - current - 1}
+            />
             {phase === 'ready' && (
-              <p className="mt-8 flex items-center gap-2 text-night-200">
-                <Icon name="sparkles" className="h-5 w-5 text-gold-300" /> Touchez le paquet pour l’ouvrir
-                <span className="text-night-400">·</span> <PD amount={booster.price} className="text-gold-200" />
-              </p>
+              <div className="mt-10 text-center">
+                <p className="flex items-center justify-center gap-2 font-medium text-white">
+                  <Icon name="sparkles" className="h-5 w-5 text-gold-300" /> Glissez le long du pointillé pour déchirer le paquet
+                </p>
+                <p className="mt-1.5 text-sm text-night-300">
+                  {batch ? (
+                    `ou touchez-le simplement · booster ${current + 1} sur ${count}`
+                  ) : (
+                    <>
+                      ou touchez-le simplement
+                      {count > 1 && ` · ${count} boosters`} · <PD amount={booster.price * count} className="text-gold-200" />
+                    </>
+                  )}
+                </p>
+              </div>
             )}
-            {phase === 'opening' && <p className="mt-8 text-night-300">Le paquet s’ouvre…</p>}
+            {phase === 'opening' && (
+              <p className="mt-10 animate-pulse text-night-200">{count > 1 ? `Les ${count} paquets s’ouvrent…` : 'Le paquet s’ouvre…'}</p>
+            )}
             {phase === 'error' && (
               <div className="mt-8 w-full max-w-md space-y-4 text-center">
                 <Alert>{error}</Alert>
@@ -176,54 +321,165 @@ export default function BoosterOpening({ booster, onClose }) {
           </div>
         )}
 
-        {phase === 'reveal' && result && (
-          <div className="w-full">
-            <div className="flex flex-wrap items-start justify-center gap-3 sm:gap-4">
-              {result.cards.map((entry, i) => (
-                <RevealCard key={`${entry.card.id}-${i}`} entry={entry} index={i} flipped={flipped[i]} onFlip={() => flip(i)} />
+        {/* ------------------------------------------------ la pile de cartes */}
+        {phase === 'reveal' && (
+          <div className="flex w-full flex-col items-center">
+            <button
+              ref={stackRef}
+              type="button"
+              onClick={advance}
+              aria-label={step >= n ? (last ? 'Voir le récapitulatif' : 'Booster suivant') : `Révéler la carte ${step + 1} sur ${n}`}
+              className="relative aspect-[63/88] w-[min(62vw,17rem)] rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-300/60 focus-visible:ring-offset-8 focus-visible:ring-offset-night-950 sm:w-72"
+            >
+              {top && topRank >= rarityRank('HOLO') && <Burst key={step} color={glowOf(top.card)} />}
+              {cards.map((entry, i) => {
+                const gone = i < cleared
+                const faceUp = i < step && !gone
+                const depth = Math.min(i - step, 5)
+                const charging = pending && i === step
+                const glow = faceUp && rarityRank(entry.card.rarity) >= rarityRank('RARE') ? glowOf(entry.card) : null
+                const transform = gone
+                  ? 'translateY(85%) scale(0.18)'
+                  : faceUp
+                    ? `scale(${rarityRank(entry.card.rarity) >= rarityRank('HOLO') ? 1.06 : 1.02})`
+                    : `translate(${depth * 3}px, ${-depth * 3}px) rotate(${jitter(i)}deg)`
+                return (
+                  <div
+                    key={`${entry.card.id}-${i}`}
+                    className="stack-card"
+                    style={{ transform, zIndex: faceUp ? n + 2 : gone ? 0 : n - i + 1, opacity: gone ? 0 : 1 }}
+                  >
+                    <div className="stack-enter h-full" style={{ animationDelay: `${(n - 1 - i) * 45}ms` }}>
+                      <div className={`h-full ${charging ? 'card-charge' : ''}`} style={charging ? { '--glow': glowOf(entry.card) } : undefined}>
+                        <div
+                          className={`flip relative h-full rounded-[4.5%/3.2%] ${glow ? 'reveal-glow' : ''}`}
+                          style={glow ? { '--glow': glow } : undefined}
+                          data-flipped={i < step}
+                        >
+                          <div className="flip-inner w-full">
+                            <div className="flip-face">
+                              <CardBack className="h-full w-full" />
+                            </div>
+                            <div className="flip-face flip-front">
+                              {/* Rendue dès le début, face cachée : l'image est chargée quand la carte se retourne */}
+                              <PokemonCard card={entry.card} quality="high" interactive={faceUp} className="h-full w-full" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </button>
+
+            <div className="mt-9 flex min-h-[4.5rem] flex-col items-center gap-1.5 text-center" aria-live="polite">
+              {top ? (
+                <div key={step} className="flex flex-col items-center gap-1.5 animate-pop-in">
+                  <div className="flex items-center gap-2">
+                    {top.is_new && (
+                      <span className="rounded-full bg-gold-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-night-950">Nouvelle</span>
+                    )}
+                    <RarityBadge rarity={top.card.rarity} label={top.card.rarity_label} />
+                  </div>
+                  <p className="font-display text-2xl font-bold text-white">{top.card.name}</p>
+                </div>
+              ) : (
+                <p className="font-display text-xl font-semibold text-white">{suspense ? 'Oh… ça brille !' : `${n} cartes vous attendent`}</p>
+              )}
+              <p className="text-sm text-night-400">
+                {suspense
+                  ? ' '
+                  : step === 0
+                    ? 'Touchez la pile pour retourner la première carte'
+                    : step < n
+                      ? `Carte ${step} sur ${n} · touchez pour la suivante`
+                      : last
+                        ? `Dernière carte ! Touchez pour voir ${count > 1 ? 'toutes vos cartes' : 'tout le paquet'}`
+                        : `Dernière carte de ce booster ! Touchez pour ouvrir le suivant (${current + 2} / ${count})`}
+              </p>
+            </div>
+
+            {/* La réserve : les cartes déjà vues */}
+            <div className="mt-4 flex min-h-[3.25rem] flex-wrap justify-center gap-1.5">
+              {cards.slice(0, cleared).map((entry, i) => (
+                <div key={`${entry.card.id}-${i}`} className="w-9 animate-pop-in" title={entry.card.name}>
+                  <PokemonCard card={entry.card} interactive={false} className="shadow-md" />
+                </div>
               ))}
             </div>
 
-            <div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-5 text-center">
-              {!allFlipped ? (
-                <Button variant="secondary" onClick={revealAll}>
-                  <Icon name="eye" className="h-4 w-4" /> Tout révéler
+            <Button variant="ghost" onClick={revealAll} className="mt-4">
+              <Icon name="eye" className="h-4 w-4" /> {count > 1 ? `Tout révéler (${count} boosters)` : 'Tout révéler'}
+            </Button>
+          </div>
+        )}
+
+        {/* ------------------------------------------------ récapitulatif */}
+        {phase === 'summary' && summary && (
+          <div className="w-full">
+            <div className="mb-8 text-center animate-pop-in">
+              <p className="font-display text-3xl font-bold text-white">
+                {summary.newCount > 0 ? (
+                  <>
+                    <span className="text-bling">{plural(summary.newCount, 'nouvelle carte', 'nouvelles cartes')}</span> pour votre collection !
+                  </>
+                ) : (
+                  'Que des doublons… la prochaine sera la bonne !'
+                )}
+              </p>
+              <p className="mt-2 text-sm text-night-300">
+                {count > 1 && `${count} boosters, ${summary.cards.length} cartes · `}
+                Meilleure carte : <strong className="text-white">{summary.best.name}</strong> ({summary.best.rarity_label})
+              </p>
+            </div>
+
+            <div
+              className={`mx-auto grid gap-x-3 gap-y-6 sm:gap-x-5 ${
+                count > 1
+                  ? 'max-w-6xl grid-cols-3 sm:grid-cols-6 lg:grid-cols-10'
+                  : n === 4
+                    ? 'max-w-3xl grid-cols-2 sm:grid-cols-4'
+                    : `max-w-5xl grid-cols-3 ${n === 6 ? 'sm:grid-cols-6' : 'sm:grid-cols-5'}`
+              }`}
+            >
+              {summary.cards.map((entry, i) => {
+                const best = i === summary.bestIndex && rarityRank(entry.card.rarity) >= rarityRank('RARE')
+                return (
+                  <div key={`${entry.card.id}-${i}`} className="animate-pop-in" style={{ animationDelay: `${i * (count > 1 ? 30 : 70)}ms` }}>
+                    <div className={`relative isolate ${best ? 'reveal-glow' : ''}`} style={best ? { '--glow': glowOf(entry.card) } : undefined}>
+                      <PokemonCard card={entry.card} quality="high" />
+                      {entry.is_new && (
+                        <span className="absolute -top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-gold-400 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-night-950 shadow">
+                          Nouvelle
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 flex flex-col items-center gap-1 text-center">
+                      <RarityBadge rarity={entry.card.rarity} className={count > 1 ? 'whitespace-nowrap !px-1.5 !text-[10px]' : ''} />
+                      <p className="w-full truncate text-xs font-medium text-night-100">{entry.card.name}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-10 flex flex-wrap justify-center gap-3">
+              {canAffordAgain ? (
+                <Button onClick={again}>
+                  {count > 1 ? `Rouvrir ${count} boosters` : 'Ouvrir un autre booster'} · <PD amount={booster.price * count} />
                 </Button>
               ) : (
-                <>
-                  <div className="animate-pop-in">
-                    <p className="font-display text-2xl font-bold text-white">
-                      {summary.newCount > 0 ? (
-                        <>
-                          <span className="text-bling">{plural(summary.newCount, 'nouvelle carte', 'nouvelles cartes')}</span> pour votre collection !
-                        </>
-                      ) : (
-                        'Que des doublons… la prochaine sera la bonne !'
-                      )}
-                    </p>
-                    <p className="mt-2 text-sm text-night-300">
-                      Meilleure carte : <strong className="text-white">{summary.best.name}</strong> ({summary.best.rarity_label})
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-3">
-                    {canAffordAgain ? (
-                      <Button onClick={again}>
-                        Ouvrir un autre booster · <PD amount={booster.price} />
-                      </Button>
-                    ) : (
-                      <ButtonLink to="/pokedollars">
-                        <Icon name="wallet" className="h-4 w-4" /> Recharger en PokéDollars
-                      </ButtonLink>
-                    )}
-                    <ButtonLink to="/collection" variant="secondary">
-                      <Icon name="grid" className="h-4 w-4" /> Voir ma collection
-                    </ButtonLink>
-                    <Button variant="ghost" onClick={onClose}>
-                      Fermer
-                    </Button>
-                  </div>
-                </>
+                <ButtonLink to="/pokedollars">
+                  <Icon name="wallet" className="h-4 w-4" /> Recharger en PokéDollars
+                </ButtonLink>
               )}
+              <ButtonLink to="/collection" variant="secondary">
+                <Icon name="grid" className="h-4 w-4" /> Voir ma collection
+              </ButtonLink>
+              <Button variant="ghost" onClick={onClose}>
+                Fermer
+              </Button>
             </div>
           </div>
         )}

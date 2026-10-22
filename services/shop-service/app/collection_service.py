@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from .models import Card, CardSet, CollectionItem, Product
+from .models import Booster, BoosterOpening, Card, CardSet, CollectionItem, Product
 
 
 def owned_ids(db: Session, user_id: uuid.UUID, card_ids) -> set[str]:
@@ -66,6 +66,40 @@ def remove(db: Session, rows: dict[str, CollectionItem], counts: Counter) -> Non
             row.quantity -= quantity
 
 
+def boosters_opened(db: Session, user_id: uuid.UUID, sets: dict[str, CardSet]) -> list[dict]:
+    """Boosters ouverts par l'utilisateur : nombre, PokéDollars dépensés, dernière ouverture."""
+    # Agrégats d'abord : le chargement joint de la carte de couverture (Booster.cover_card) gênerait le GROUP BY
+    stats = db.execute(
+        select(
+            BoosterOpening.booster_id,
+            func.count(BoosterOpening.id),
+            func.sum(BoosterOpening.price),
+            func.max(BoosterOpening.opened_at),
+        )
+        .where(BoosterOpening.user_id == user_id)
+        .group_by(BoosterOpening.booster_id)
+    ).all()
+    boosters = {b.id: b for b in db.scalars(select(Booster).where(Booster.id.in_([row[0] for row in stats])))}
+    rows = sorted(
+        ((boosters[booster_id], opened, spent, last) for booster_id, opened, spent, last in stats),
+        key=lambda row: (-row[1], row[0].position),
+    )
+    return [
+        {
+            "slug": booster.slug,
+            "name": booster.name,
+            "card_count": len(booster.slots),
+            "sets": [sets[s] for s in booster.set_ids],
+            "cover": booster.cover_card,
+            "colors": booster.colors,
+            "opened": opened,
+            "spent": spent,
+            "last_opened_at": last_opened_at,
+        }
+        for booster, opened, spent, last_opened_at in rows
+    ]
+
+
 def summary(db: Session, user_id: uuid.UUID) -> dict:
     items = db.scalars(
         select(CollectionItem)
@@ -92,8 +126,16 @@ def summary(db: Session, user_id: uuid.UUID) -> dict:
         "total": sum(count for _, count in sets),
         "value": sum((prices.get(item.card_id, Decimal("0")) * item.quantity for item in items), Decimal("0.00")),
         "sets": [
-            {"id": s.id, "name": s.name, "logo_url": s.logo_url, "owned": owned_by_set[s.id], "total": count}
+            {
+                "id": s.id,
+                "name": s.name,
+                "serie": s.serie,
+                "logo_url": s.logo_url,
+                "owned": owned_by_set[s.id],
+                "total": count,
+            }
             for s, count in sets
         ],
+        "boosters": boosters_opened(db, user_id, {s.id: s for s, _ in sets}),
         "items": items,
     }

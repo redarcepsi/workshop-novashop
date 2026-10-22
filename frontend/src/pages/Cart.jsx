@@ -5,7 +5,7 @@ import Icon from '../components/Icon.jsx'
 import { ProductThumb } from '../components/ProductCard.jsx'
 import { Alert, Button, ButtonLink, EmptyState, PD, PageSpinner, QuantityStepper, RarityBadge } from '../components/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
-import { useCart } from '../context/CartContext.jsx'
+import { maxQuantity, useCart } from '../context/CartContext.jsx'
 import { formatMoney } from '../utils/format.js'
 
 const productUrl = (product) => (product.kind === 'CARD' ? `/cards/${product.slug}` : '/pokedollars')
@@ -20,7 +20,8 @@ function CartLine({ line }) {
     await fn()
     setBusy(false)
   }
-  const stockMax = product.stock ?? 10
+  const limit = maxQuantity(product)
+  const stockMax = product.stock ?? limit
 
   return (
     <li className={`flex gap-4 py-6 transition ${busy ? 'opacity-60' : ''}`}>
@@ -60,7 +61,7 @@ function CartLine({ line }) {
         <div className="mt-auto flex items-center justify-between pt-3">
           <QuantityStepper
             value={line.quantity}
-            max={Math.max(line.quantity > stockMax ? line.quantity : Math.min(stockMax, 10), 1)}
+            max={Math.max(line.quantity > stockMax ? line.quantity : Math.min(stockMax, limit), 1)}
             disabled={busy}
             onChange={(q) => run(() => setQuantity(product, q))}
           />

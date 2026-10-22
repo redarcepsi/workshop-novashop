@@ -49,11 +49,16 @@ def _get_line(db: Session, user_id: uuid.UUID, product_id: int) -> CartItem | No
     return db.scalar(select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id))
 
 
+def max_quantity(product: Product) -> int:
+    """10 exemplaires d'une même carte ; pour un lot de PokéDollars, seulement un plafond technique."""
+    if product.kind == ProductKind.POKEDOLLARS:
+        return settings.max_pokedollar_packs_per_item
+    return settings.max_quantity_per_item
+
+
 def _check_quantity(product: Product, quantity: int) -> None:
-    if quantity > settings.max_quantity_per_item:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"Maximum {settings.max_quantity_per_item} exemplaires par article"
-        )
+    if quantity > max_quantity(product):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Maximum {max_quantity(product)} exemplaires par article")
     if not has_stock(product, quantity):
         detail = (
             f"Stock insuffisant pour « {product.name} » : plus que {product.stock} exemplaire(s)"
@@ -111,7 +116,7 @@ def merge(db: Session, user_id: uuid.UUID, items: list[CartItemIn]) -> dict:
         if product is None or product.stock == 0:
             continue
         line = _get_line(db, user_id, item.product_id)
-        quantity = min((line.quantity if line else 0) + item.quantity, settings.max_quantity_per_item)
+        quantity = min((line.quantity if line else 0) + item.quantity, max_quantity(product))
         if product.stock is not None:
             quantity = min(quantity, product.stock)
         if line:

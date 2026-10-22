@@ -45,14 +45,16 @@ indisponible` pour un code 5xx.
 | `GET /api/shop/products/{slug}` | 404 | `Produit introuvable` |
 | `GET /api/shop/sets/{set_id}/cards` | 404 | `Set introuvable` |
 | `POST /api/shop/cart/items` | 404 | `Produit introuvable` |
-| `POST`, `PATCH /api/shop/cart/items…` | 409 | `Maximum 10 exemplaires par article` |
+| `POST`, `PATCH /api/shop/cart/items…` | 409 | `Maximum 10 exemplaires par article` (carte) ou `Maximum 9999 exemplaires par article` (lot de PokéDollars) |
 | `POST`, `PATCH /api/shop/cart/items…` | 409 | `Stock insuffisant pour « <nom> » : plus que N exemplaire(s)` |
 | `POST`, `PATCH /api/shop/cart/items…` | 409 | `« <nom> » est en rupture de stock` |
 | `PATCH /api/shop/cart/items/{product_id}` | 404 | `Cet article n'est pas dans votre panier` |
 
 ## Codes de shop-service : boosters
 
-`POST /api/shop/boosters/{slug}/open` (payé en PokéDollars, sans `payment-service`) :
+`POST /api/shop/boosters/{slug}/open` et `POST /api/shop/boosters/{slug}/open-batch` (plusieurs boosters ; payés
+en PokéDollars, sans `payment-service`). Pour un lot, le solde doit couvrir tous les boosters, sinon rien n'est
+débité ; `count` hors de 1 à 5 : 422.
 
 | Code | Message | Effet |
 |------|---------|-------|

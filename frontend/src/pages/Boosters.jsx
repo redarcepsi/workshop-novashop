@@ -7,25 +7,48 @@ import Icon from '../components/Icon.jsx'
 import { Alert, Button, ButtonLink, PD, PageSpinner, RarityBadge } from '../components/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useWallet } from '../context/WalletContext.jsx'
-import { RARITIES } from '../utils/cards.js'
-import { formatChance, formatPD } from '../utils/format.js'
+import { boosterSerie, groupBySerie, serieInfo } from '../utils/cards.js'
+import { formatChance, formatOneIn, formatPD } from '../utils/format.js'
+
+const BATCH = 5 // ouverture groupée (POST /boosters/{slug}/open-batch)
+
+const serieAnchor =(serie) => `serie-${serie.normalize('NFD').replace(/[^a-zA-Z]+/g, '-').toLowerCase()}`
 
 function Odds({ odds }) {
+  // Les raretés présentes dans tous les boosters (communes…) n'apprennent rien : listées à part
+  const always = odds.filter((o) => o.chance >= 1)
+  const luck = [...odds].filter((o) => o.chance < 1).reverse()
   return (
-    <ul className="space-y-1.5">
-      {[...odds].reverse().map((o) => (
-        <li key={o.rarity} className="flex items-center gap-3 text-xs">
-          <RarityBadge rarity={o.rarity} className="w-28 justify-center" />
-          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-            <span
-              className="block h-full rounded-full bg-gradient-to-r from-violet-400 to-gold-300"
-              style={{ width: `${Math.max(2, o.chance * 100)}%` }}
-            />
-          </span>
-          <span className="w-14 text-right tabular-nums text-night-200">{formatChance(o.chance)}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      {/* Grille : badges et pourcentages alignés d'une ligne à l'autre, la barre prend la place restante */}
+      <ul className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2.5 text-xs">
+        {luck.map((o) => (
+          <li key={o.rarity} className="contents">
+            <RarityBadge rarity={o.rarity} className="justify-self-start whitespace-nowrap" />
+            <span className="h-1.5 min-w-8 overflow-hidden rounded-full bg-white/10">
+              <span
+                className="block h-full rounded-full bg-gradient-to-r from-violet-400 to-gold-300"
+                style={{ width: `${Math.max(2, o.chance * 100)}%` }}
+              />
+            </span>
+            <span className="text-right tabular-nums leading-tight text-night-200">
+              {formatChance(o.chance)}
+              {formatOneIn(o.chance) && (
+                <span className="block whitespace-nowrap text-[10px] text-night-400">{formatOneIn(o.chance)}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {always.length > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-night-400">
+          Dans chaque booster :
+          {always.map((o) => (
+            <RarityBadge key={o.rarity} rarity={o.rarity} />
+          ))}
+        </p>
+      )}
+    </>
   )
 }
 
@@ -34,6 +57,8 @@ function BoosterTile({ booster, onOpen }) {
   const { balance } = useWallet()
   const [showOdds, setShowOdds] = useState(false)
   const affordable = balance != null && balance >= booster.price
+  const batchPrice = booster.price * BATCH
+  const batchShort = Boolean(user) && balance != null && balance < batchPrice
   const best = booster.odds.at(-1)
 
   return (
@@ -53,45 +78,69 @@ function BoosterTile({ booster, onOpen }) {
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col p-6 pt-4">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="font-display text-xl font-semibold text-white">{booster.name}</h2>
-          <PD amount={booster.price} className="shrink-0 text-lg text-gold-200" />
-        </div>
-        <p className="mt-2 flex-1 text-sm text-night-300">{booster.description}</p>
+      <div className="flex flex-1 flex-col p-5 pt-4 sm:p-6 sm:pt-4">
+        {/* Titre sur toute la largeur, prix en dessous : rien ne se tasse quand la tuile est étroite */}
+        <h2 className="font-display text-xl font-semibold leading-snug text-white">{booster.name}</h2>
+        <p className="mt-1 flex items-center gap-2 text-sm">
+          <PD amount={booster.price} className="text-base text-gold-200" />
+          <span className="text-night-500" aria-hidden="true">·</span>
+          <span className="text-night-400">{booster.card_count} cartes</span>
+        </p>
+        <p className="mt-3 flex-1 text-sm text-night-300">{booster.description}</p>
 
-        <div className="mt-4 rounded-xl bg-white/5 p-3 ring-1 ring-white/10">
+        <div className="mt-4 rounded-xl bg-white/5 ring-1 ring-white/10">
           <button
             type="button"
             onClick={() => setShowOdds((s) => !s)}
             aria-expanded={showOdds}
-            className="flex w-full items-center justify-between gap-2 text-left text-xs text-night-200"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs transition hover:bg-white/5"
           >
-            <span>
-              Jusqu’à <strong className="text-white">{RARITIES[best.rarity].label.toLowerCase()}</strong> :{' '}
-              {formatChance(best.chance)} par booster
+            {/* Meilleure rareté possible et sa chance ; passe sur deux lignes plutôt que de déborder */}
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="sr-only">Meilleure rareté :</span>
+              <RarityBadge rarity={best.rarity} className="whitespace-nowrap" />
+              <span className="whitespace-nowrap text-night-200">
+                {formatOneIn(best.chance) ?? `${formatChance(best.chance)} par booster`}
+              </span>
             </span>
-            <span className="flex items-center gap-1 font-semibold text-gold-300">
+            <span className="flex shrink-0 items-center gap-1 font-semibold text-gold-300">
               Probabilités <Icon name="chevronDown" className={`h-4 w-4 transition ${showOdds ? 'rotate-180' : ''}`} />
             </span>
           </button>
           {showOdds && (
-            <div className="mt-3 border-t border-white/10 pt-3">
+            <div className="mx-3 border-t border-white/10 py-3">
               <Odds odds={booster.odds} />
-              <p className="mt-2 text-[11px] text-night-400">Chance d’obtenir au moins une carte de chaque rareté.</p>
+              <p className="mt-3 text-[11px] text-night-500">Chance d’obtenir au moins une carte de chaque rareté par booster.</p>
             </div>
           )}
         </div>
 
-        <div className="mt-5">
+        <div className="mt-4">
           {/* Solde encore inconnu : on laisse tenter, le serveur vérifie */}
           {!user || balance == null || affordable ? (
-            <Button onClick={() => onOpen(booster)} className="w-full py-3">
-              <Icon name="gift" className="h-5 w-5" /> Ouvrir · <PD amount={booster.price} />
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => onOpen(booster)} className="h-11 min-w-0 flex-1 whitespace-nowrap">
+                <Icon name="gift" className="h-5 w-5 shrink-0" /> Ouvrir
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => onOpen(booster, BATCH)}
+                disabled={batchShort}
+                title={
+                  batchShort
+                    ? `Il manque ${formatPD(batchPrice - balance)} pour en ouvrir ${BATCH}`
+                    : `Ouvrir ${BATCH} boosters d’un coup : ${formatPD(batchPrice)}`
+                }
+                className="h-11 shrink-0 whitespace-nowrap px-3.5"
+              >
+                × {BATCH}
+                <PD amount={batchPrice} className="text-gold-200" />
+              </Button>
+            </div>
           ) : (
-            <ButtonLink to="/pokedollars" variant="secondary" className="w-full py-3">
-              <Icon name="wallet" className="h-5 w-5" /> Il manque {formatPD(booster.price - (balance ?? 0))}
+            <ButtonLink to="/pokedollars" variant="secondary" className="h-11 w-full whitespace-nowrap">
+              <Icon name="wallet" className="h-5 w-5 shrink-0" /> Il manque
+              <PD amount={booster.price - (balance ?? 0)} className="text-gold-200" />
             </ButtonLink>
           )}
         </div>
@@ -116,9 +165,11 @@ export default function Boosters() {
       .catch((e) => setError(e.message))
   }, [])
 
-  const onOpen = (booster) => {
+  const groups = boosters ? groupBySerie(boosters, boosterSerie) : []
+
+  const onOpen = (booster, count = 1) => {
     if (!user) return navigate('/login', { state: { from: location } })
-    setOpening(booster)
+    setOpening({ booster, count })
   }
 
   return (
@@ -155,13 +206,38 @@ export default function Boosters() {
       {error && <Alert>{error}</Alert>}
       {!boosters && !error && <PageSpinner />}
 
-      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        {boosters?.map((b) => (
-          <BoosterTile key={b.slug} booster={b} onOpen={onOpen} />
+      {groups.length > 1 && (
+        <nav aria-label="Séries" className="sticky top-16 z-20 -mx-4 mb-10 flex gap-2 overflow-x-auto bg-night-950/80 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-full sm:px-2 sm:ring-1 sm:ring-white/10">
+          {groups.map(([serie, list]) => (
+            <a
+              key={serie}
+              href={`#${serieAnchor(serie)}`}
+              className="flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-night-200 transition hover:bg-white/10 hover:text-white"
+            >
+              {serieInfo(serie).label}
+              <span className="rounded-full bg-white/10 px-1.5 text-[11px] text-night-300">{list.length}</span>
+            </a>
+          ))}
+        </nav>
+      )}
+
+      <div className="space-y-14">
+        {groups.map(([serie, list]) => (
+          <section key={serie} id={serieAnchor(serie)} className="scroll-mt-36">
+            <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="font-display text-3xl font-bold text-white">{serieInfo(serie).label}</h2>
+              <span className="text-sm text-night-400">{serieInfo(serie).period}</span>
+            </div>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {list.map((b) => (
+                <BoosterTile key={b.slug} booster={b} onOpen={onOpen} />
+              ))}
+            </div>
+          </section>
         ))}
       </div>
 
-      {opening && <BoosterOpening booster={opening} onClose={() => setOpening(null)} />}
+      {opening && <BoosterOpening booster={opening.booster} count={opening.count} onClose={() => setOpening(null)} />}
     </div>
   )
 }

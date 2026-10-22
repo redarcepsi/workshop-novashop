@@ -17,11 +17,11 @@ class SetRef(BaseModel):
 
     id: str
     name: str
+    serie: str = Field(examples=["Noir & Blanc"])
     logo_url: str | None
 
 
 class SetOut(SetRef):
-    serie: str
     release_date: date | None
     card_count: int = 0
 
@@ -85,13 +85,17 @@ class ProductPage(BaseModel):
 # ---------------------------------------------------------------- panier
 
 
+# Borne de validation commune ; la limite propre à chaque article est vérifiée par cart_service.max_quantity()
+MAX_QUANTITY = max(settings.max_quantity_per_item, settings.max_pokedollar_packs_per_item)
+
+
 class CartItemIn(BaseModel):
     product_id: int = Field(examples=[1])
-    quantity: int = Field(default=1, ge=1, le=settings.max_quantity_per_item)
+    quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY)
 
 
 class CartQuantityIn(BaseModel):
-    quantity: int = Field(ge=1, le=settings.max_quantity_per_item, examples=[2])
+    quantity: int = Field(ge=1, le=MAX_QUANTITY, examples=[2])
 
 
 class CartItemsIn(BaseModel):
@@ -255,6 +259,14 @@ class BoosterOpeningOut(BaseModel):
     opened_at: datetime
 
 
+class BoosterBatchOut(BaseModel):
+    booster: BoosterRef
+    count: int = Field(description="Boosters ouverts")
+    price: int = Field(description="Total débité, en PokéDollars")
+    balance: int = Field(description="Solde de PokéDollars après l'ouverture groupée")
+    openings: list[BoosterOpeningOut] = Field(description="Une ouverture par booster, dans l'ordre")
+
+
 # ---------------------------------------------------------------- collection
 
 
@@ -271,12 +283,27 @@ class CollectionItemOut(BaseModel):
     first_obtained_at: datetime
 
 
+class CollectionBooster(BaseModel):
+    """Un booster déjà ouvert par l'utilisateur, avec de quoi dessiner son paquet."""
+
+    slug: str
+    name: str
+    card_count: int
+    sets: list[SetRef]
+    cover: CardOut
+    colors: list[str]
+    opened: int = Field(description="Boosters de ce type achetés et ouverts")
+    spent: int = Field(description="PokéDollars dépensés pour ce booster")
+    last_opened_at: datetime
+
+
 class CollectionOut(BaseModel):
     distinct: int = Field(description="Cartes différentes possédées")
     copies: int = Field(description="Exemplaires possédés, doublons compris")
     total: int = Field(description="Cartes différentes au catalogue")
     value: Decimal = Field(description="Valeur de la collection au prix de la boutique")
     sets: list[CollectionSet]
+    boosters: list[CollectionBooster] = Field(description="Boosters ouverts, du plus acheté au moins acheté")
     items: list[CollectionItemOut]
 
 

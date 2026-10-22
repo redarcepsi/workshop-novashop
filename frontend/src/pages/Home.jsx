@@ -20,7 +20,7 @@ const STEPS = [
   {
     icon: 'gift',
     title: 'Ouvrez des boosters',
-    text: 'Chaque paquet cache 5 ou 6 cartes, dont une rare garantie. Qui sait ce qui brille dedans ?',
+    text: 'Chaque paquet cache de 4 à 6 cartes, dont une rare garantie. Qui sait ce qui brille dedans ?',
     to: '/boosters',
   },
   {
@@ -31,6 +31,9 @@ const STEPS = [
   },
 ]
 
+// Un aperçu de chaque série sur l'accueil ; la page Boosters les présente tous
+const HOME_BOOSTERS = ['set-de-base', 'noir-et-blanc', 'frontieres-franchies', '151', 'evolutions-prismatiques', 'legendaire']
+
 function Hero({ showcase, stats }) {
   return (
     <section className="relative overflow-hidden">
@@ -38,7 +41,7 @@ function Hero({ showcase, stats }) {
         <div>
           <BrandLogo className="-ml-3 mb-6 w-44 drop-shadow-[0_20px_40px_rgba(255,194,28,0.25)] sm:w-56" />
           <span className="inline-flex items-center gap-2 rounded-full border border-gold-300/30 bg-gold-400/10 px-3 py-1 text-xs font-semibold text-gold-200">
-            <Icon name="sparkles" className="h-4 w-4" /> Nouveau : le booster Évolutions Prismatiques
+            <Icon name="sparkles" className="h-4 w-4" /> Nouveau : toute la série Noir &amp; Blanc en boosters
           </span>
           <h1 className="mt-6 font-display text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl">
             Les cartes Pokémon qui font <span className="text-bling">bling.</span>
@@ -156,12 +159,12 @@ export default function Home() {
         <SectionHeader
           eyebrow="Payés en PokéDollars"
           title="Les boosters"
-          subtitle="Du Set de Base de 1999 au tout nouveau Évolutions Prismatiques. Les cartes sont tirées par nos serveurs, à chaque ouverture."
+          subtitle="Du Set de Base de 1999 à Évolutions Prismatiques, en passant par toute la série Noir & Blanc. Les cartes sont tirées par nos serveurs, à chaque ouverture."
           link="/boosters"
-          linkLabel="Ouvrir un booster"
+          linkLabel={boosters.length ? `Les ${boosters.length} boosters` : 'Tous les boosters'}
         />
         <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-6">
-          {boosters.map((b) => (
+          {boosters.filter((b) => HOME_BOOSTERS.includes(b.slug)).map((b) => (
             <Link key={b.slug} to="/boosters" className="group text-center">
               <BoosterPack booster={b} className="transition duration-300 group-hover:-translate-y-2 group-hover:rotate-2" />
               <p className="mt-4 text-sm font-semibold text-white">{b.name.replace('Booster ', '')}</p>
@@ -221,21 +224,21 @@ export default function Home() {
       {sets.length > 0 && (
         <section className="container-page mt-24">
           <SectionHeader eyebrow="Explorer" title="Par set" link="/cards" linkLabel="Toutes les cartes" />
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
             {sets.map((s) => (
               <Link
                 key={s.id}
                 to={`/cards?set=${encodeURIComponent(s.id)}&sort=number`}
-                className="panel group flex flex-col items-center p-5 text-center transition hover:-translate-y-0.5 hover:border-white/20"
+                className="panel group flex flex-col items-center p-4 text-center transition hover:-translate-y-0.5 hover:border-white/20"
               >
-                <div className="flex h-16 w-full items-center justify-center">
+                <div className="flex h-12 w-full items-center justify-center">
                   {s.logo_url ? (
                     <img src={setLogo(s.logo_url)} alt="" className="max-h-full max-w-full object-contain transition group-hover:scale-105" loading="lazy" />
                   ) : (
                     <Icon name="cards" className="h-8 w-8 text-night-300" />
                   )}
                 </div>
-                <p className="mt-4 text-sm font-semibold text-white">{s.name}</p>
+                <p className="mt-3 text-sm font-semibold leading-tight text-white">{s.name}</p>
                 <p className="text-xs text-night-400">
                   {s.card_count} cartes · {s.release_date?.slice(0, 4)}
                 </p>

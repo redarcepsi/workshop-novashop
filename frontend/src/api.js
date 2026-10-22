@@ -160,6 +160,12 @@ export const shopApi = {
   // Boosters : la clé d'idempotence évite d'ouvrir (et de payer) deux fois sur un double clic ou une relance
   openBooster: (slug, requestId) =>
     request(`/shop/boosters/${encodeURIComponent(slug)}/open`, { method: 'POST', headers: { 'Idempotency-Key': requestId } }),
+  // Plusieurs boosters d'un coup : tous payés et ouverts, ou aucun
+  openBoosters: (slug, count, requestId) =>
+    request(`/shop/boosters/${encodeURIComponent(slug)}/open-batch?count=${count}`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': requestId },
+    }),
 
   // Panier
   quote: (items) => request('/shop/cart/quote', { method: 'POST', body: { items }, auth: false }),

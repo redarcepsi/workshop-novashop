@@ -68,8 +68,8 @@ valables 60 minutes. Base `auth_db`, rôle `auth_user`. Crée au démarrage les 
 
 ### shop-service
 
-API FastAPI, préfixe `/api/shop`, port interne 8000. C'est le marchand PokéBling : 609 cartes Pokémon numériques
-(5 sets, données TCGdex, images chargées par le navigateur depuis TCGdex), 4 lots de PokéDollars, 6 boosters
+API FastAPI, préfixe `/api/shop`, port interne 8000. C'est le marchand PokéBling : 1 797 cartes Pokémon numériques
+(16 sets, données TCGdex, images chargées par le navigateur depuis TCGdex), 4 lots de PokéDollars, 17 boosters
 payés en PokéDollars, panier, commandes, porte-monnaie et collection. Vérifie les JWT localement, sans appeler
 `auth-service`. Délègue le débit et le remboursement des cartes à `payment-service`. Base `shop_db`,
 rôle `shop_user`. Seul service connecté à la fois au réseau du front et au réseau du paiement.
@@ -236,7 +236,8 @@ reste à la charge du moteur de remédiation.
    essai dans 2.0s`), puis arrêt du processus (`RuntimeError`), et Docker relance le conteneur ;
 3. données de démonstration, si absentes :
    - `auth-service` : comptes de démo (log `Comptes de démo créés : leo@novashop.fr, ines@novashop.fr`) ;
-   - `shop-service` : catalogue (log `Catalogue PokéBling inséré : 609 cartes, 4 lots de PokéDollars, 6 boosters`) ;
+   - `shop-service` : catalogue (log `Catalogue PokéBling inséré : 1797 cartes, 4 lots de PokéDollars, 17 boosters` sur une base vide,
+     `Catalogue PokéBling mis à jour : …` quand des sets ou des boosters ont été ajoutés depuis) ;
    - `payment-service` : marchand `novashop` (log `Marchand de démo novashop : créé`, `clé API renouvelée` ou `renommé en PokéBling`
      si `MERCHANT_API_KEY` ou `MERCHANT_NAME` a changé).
 

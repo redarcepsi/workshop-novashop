@@ -258,7 +258,7 @@ Autres messages : `Marchand de démo novashop : créé` / `clé API renouvelée`
 | ERROR | `Commande CMD-… non enregistrée après le paiement PAY_… : remboursement` | Compensation lancée |
 | ERROR | `Remboursement de compensation impossible pour PAY_… : à régulariser` | Débit sans commande |
 
-Au démarrage : `Catalogue PokéBling inséré : 609 cartes, 4 lots de PokéDollars, 6 boosters`, `Tables de l'ancienne boutique NovaShop détectées : …` (une fois, au passage à PokéBling), `Booster ouvert : user=… booster=… cartes=…`, `Base indisponible (tentative N/15)…`.
+Au démarrage : `Catalogue PokéBling inséré : 1797 cartes, 4 lots de PokéDollars, 17 boosters` (base vide) ou `Catalogue PokéBling mis à jour : N cartes ajoutées (N sets), …, N boosters modifiés` (sets ou boosters ajoutés ou changés depuis), `Tables de l'ancienne boutique NovaShop détectées : …` (une fois, au passage à PokéBling), `Booster ouvert : user=… booster=… cartes=…`, `Base indisponible (tentative N/15)…`.
 
 ## Journaux d'auth-service
 

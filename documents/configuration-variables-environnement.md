@@ -104,7 +104,8 @@ d'environnement du même nom, à condition de l'ajouter au service dans `docker-
 |---------|----------|--------|------|
 | shop-service | `PAYMENT_TIMEOUT` | `3.0` | Délai de réponse de `payment-service`, en secondes, par tentative |
 | shop-service | `PAYMENT_ATTEMPTS` | `2` | Nombre de tentatives vers `payment-service` |
-| shop-service | `MAX_QUANTITY_PER_ITEM` | `10` | Quantité maximale par article |
+| shop-service | `MAX_QUANTITY_PER_ITEM` | `10` | Quantité maximale d'une même carte dans le panier |
+| shop-service | `MAX_POKEDOLLAR_PACKS_PER_ITEM` | `9999` | Lots de PokéDollars : pas de limite commerciale, seulement ce plafond technique par ligne (garde le total d'une commande sous les limites des colonnes en base) |
 | shop-service | `SEED_CATALOG` | `true` | Insertion du catalogue de démo |
 | auth-service | `BCRYPT_ROUNDS` | `12` | Coût du hachage des mots de passe |
 | auth-service, shop-service | `JWT_ALGORITHM`, `JWT_ISSUER` | `HS256`, `novashop-auth` | Format des jetons |
@@ -114,8 +115,8 @@ d'environnement du même nom, à condition de l'ajouter au service dans `docker-
 | rag-service | `SYNC_INTERVAL_SECONDS` | `30` | Fréquence de scrutation de `documents/` |
 | rag-service | `ATTACHMENT_MAX_CHARS`, `ATTACHMENT_MAX_BYTES` | `6000`, 10 Mo | Fichiers joints : texte donné en entier au modèle, taille maximale |
 
-Le plafond de 10 exemplaires est aussi écrit en dur dans le front (`MAX_QTY` de `CartContext.jsx`) pour le
-panier invité : changer `MAX_QUANTITY_PER_ITEM` seul ne suffit pas.
+Ces deux plafonds sont aussi écrits en dur dans le front (`maxQuantity` de `CartContext.jsx`) pour le panier
+invité et le sélecteur de quantité : changer les variables seules ne suffit pas.
 
 ## Réglages fixes de docker-compose.yml
 
