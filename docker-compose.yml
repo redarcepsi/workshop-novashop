@@ -159,6 +159,7 @@ services:
   ollama:
     image: ollama/ollama:0.35.1
     profiles: ["ai"]
+    mem_limit: 6g
     restart: unless-stopped
     environment:
       # Modèles jamais déchargés (-1) : sur processeur, recharger gemma4 prend plus de 3 minutes, que paierait
