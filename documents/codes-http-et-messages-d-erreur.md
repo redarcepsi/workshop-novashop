@@ -65,6 +65,23 @@ débité ; `count` hors de 1 à 5 : 422.
 | 409 | `Clé d'idempotence déjà utilisée pour un autre booster` | Aucun |
 | 422 | `Idempotency-Key` qui n'est pas un UUID | Aucun |
 
+`POST /api/shop/boosters/daily` (booster du jour, offert) : 201 avec l'ouverture ; une fois le booster du jour
+ouvert, 201 avec la même ouverture (aucun second booster). 404 `Aucun booster à offrir pour le moment` si aucun
+booster d'un seul set n'existe.
+
+## Codes de shop-service : machine à sous
+
+`POST /api/shop/slots/spin` (mise en PokéDollars, sans `payment-service`) :
+
+| Code | Message | Effet |
+|------|---------|-------|
+| 201 | Partie renvoyée (`won`, carte, nouveau solde) | Mise débitée ; carte ajoutée à la collection si gagnée |
+| 201 | Même partie qu'avant (même `Idempotency-Key`) | Aucun nouveau débit |
+| 404 | `Carte introuvable` | Aucun |
+| 409 | `Solde insuffisant : il vous manque N PokéDollars` | Aucun |
+| 409 | `Clé d'idempotence déjà utilisée pour une autre carte` | Aucun |
+| 422 | `card_id` absent ou trop long, `Idempotency-Key` qui n'est pas un UUID | Aucun |
+
 ## Codes de shop-service : paiement d'une commande
 
 `POST /api/shop/orders` :

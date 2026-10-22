@@ -469,6 +469,30 @@
   to { transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) scale(0.2); opacity: 0; }
 }
 
+/* ------------------------------------------------------------------ machine à sous */
+
+/* Bande d'un rouleau : défile de --to (le dernier symbole) en --d, avec un léger rebond à l'arrêt */
+.reel-strip {
+  animation: reel-spin var(--d) cubic-bezier(0.15, 0.8, 0.3, 1.04) forwards;
+}
+@keyframes reel-spin {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--to)); }
+}
+.reel-win {
+  box-shadow: 0 0 0 2px var(--glow), 0 0 28px 4px var(--glow);
+}
+.slot-light {
+  animation: slot-light 1.2s ease-in-out infinite;
+}
+.is-spinning .slot-light {
+  animation-duration: 0.3s;
+}
+@keyframes slot-light {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; box-shadow: 0 0 10px currentColor; }
+}
+
 /* Masque les flèches des champs numériques */
 input[type='number']::-webkit-outer-spin-button,
 input[type='number']::-webkit-inner-spin-button {
@@ -496,8 +520,12 @@ input[type='number'] {
   .card-charge,
   .burst-rays,
   .burst-ring,
-  .burst-particle {
+  .burst-particle,
+  .slot-light {
     animation: none;
+  }
+  .reel-strip {
+    animation-duration: 0.01s;
   }
   .burst-ring,
   .burst-particle {

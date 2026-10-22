@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import booster_service
+from .. import booster_service, daily_service
 from ..config import API_PREFIX
 from ..database import get_db
 from ..models import Booster
-from ..schemas import BoosterBatchOut, BoosterOpeningOut, BoosterOut
+from ..schemas import BoosterBatchOut, BoosterOpeningOut, BoosterOut, DailyBoosterOut
 from ..security import CurrentUser, get_current_user
 
 router = APIRouter(prefix=f"{API_PREFIX}/boosters", tags=["Boosters"])
@@ -18,6 +18,36 @@ router = APIRouter(prefix=f"{API_PREFIX}/boosters", tags=["Boosters"])
 def list_boosters(db: Session = Depends(get_db)):
     """Public : prix en PokéDollars, sets concernés et probabilité d'obtenir chaque rareté."""
     return booster_service.describe(db, db.scalars(select(Booster).order_by(Booster.position)).all())
+
+
+@router.get(
+    "/daily",
+    response_model=DailyBoosterOut,
+    summary="Mon booster du jour",
+    responses={401: {"description": "Jeton absent, invalide ou expiré"}},
+)
+def get_daily_booster(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Le booster offert aujourd'hui : tiré au hasard parmi les boosters d'un seul set (hors édition premium), il reste
+    le même toute la journée. Indique s'il a déjà été ouvert et quand le suivant sera disponible (minuit, heure de
+    Paris).
+    """
+    return daily_service.summary(db, user.id)
+
+
+@router.post(
+    "/daily",
+    response_model=BoosterOpeningOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ouvrir mon booster du jour",
+    responses={401: {"description": "Jeton absent, invalide ou expiré"}},
+)
+def open_daily_booster(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Ouvre gratuitement le booster du jour : cartes tirées **côté serveur** et ajoutées à la collection, rien n'est
+    débité. Un seul par jour et par joueur : une fois ouvert, l'appel renvoie la même ouverture.
+    """
+    return daily_service.claim(db, user.id)
 
 
 @router.post(

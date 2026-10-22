@@ -2,13 +2,15 @@
 
 `shop-service` est l'API du marchand PokéBling (anciennement NovaShop) : boutique de cartes Pokémon numériques.
 On y achète des cartes à l'unité et des PokéDollars (monnaie virtuelle) en euros, par carte bancaire ; les
-PokéDollars servent à ouvrir des boosters ; chaque client a une collection. API FastAPI, préfixe `/api/shop`,
+PokéDollars servent à ouvrir des boosters et à jouer à la machine à sous ; un booster est offert chaque jour ;
+chaque client a une collection. API FastAPI, préfixe `/api/shop`,
 port interne 8000, base `shop_db`. Depuis l'extérieur, elle n'est joignable que par la passerelle nginx :
 `http://<hôte>:8080/api/shop/...`. Code : `services/shop-service/app/routers/`.
 
-Le catalogue et la liste des boosters sont publics. Le panier, les commandes, le porte-monnaie, la collection et
-l'ouverture de boosters exigent un JWT délivré par `auth-service`, vérifié localement par `shop-service`. Sans
-jeton valide : 401 `Jeton invalide ou expiré`.
+Le catalogue, la liste des boosters et les règles de la machine à sous sont publics. Le panier, les commandes, le
+porte-monnaie, la collection, l'ouverture de boosters (booster du jour compris) et les parties de machine à sous
+exigent un JWT délivré par `auth-service`, vérifié localement par `shop-service`. Sans jeton valide : 401
+`Jeton invalide ou expiré`.
 
 ## Résumé des routes de shop-service
 
@@ -21,6 +23,10 @@ jeton valide : 401 `Jeton invalide ou expiré`.
 | GET | `/api/shop/boosters` | – | Boosters, prix en PokéDollars et probabilités |
 | POST | `/api/shop/boosters/{slug}/open` | JWT | Payer un booster en PokéDollars et l'ouvrir |
 | POST | `/api/shop/boosters/{slug}/open-batch` | JWT | Payer et ouvrir jusqu'à 5 boosters d'un coup |
+| GET | `/api/shop/boosters/daily` | JWT | Mon booster du jour (offert) : lequel, déjà ouvert ou non, prochain à minuit |
+| POST | `/api/shop/boosters/daily` | JWT | Ouvrir gratuitement mon booster du jour (un par jour) |
+| GET | `/api/shop/slots` | – | Machine à sous : mise et chance de gain par rareté |
+| POST | `/api/shop/slots/spin` | JWT | Machine à sous : miser des PokéDollars pour tenter de gagner une carte choisie |
 | POST | `/api/shop/cart/quote` | – | Chiffrer un panier invité |
 | GET | `/api/shop/cart` | JWT | Mon panier |
 | POST | `/api/shop/cart/items` | JWT | Ajouter un article |
@@ -165,6 +171,54 @@ Réponse 201 : `{"booster": {"slug", "name"}, "count", "price" (total débité),
 …]}`, chaque ouverture au format de `POST /open`. Erreurs : celles de l'ouverture simple, plus 422 si `count`
 sort de 1 à 5. Le front s'en sert pour le bouton « × 5 » de la page Boosters.
 
+### GET /api/shop/boosters/daily
+
+Le booster offert aujourd'hui à l'utilisateur connecté : tiré au hasard parmi les 16 boosters d'un seul set
+(le Légendaire, « Édition premium », est exclu), il reste le même toute la journée (heure de Paris). Réponse :
+`{"day": "2026-10-22", "booster": booster (format de GET /boosters), "claimed": false, "claimed_at": null,
+"next_at": "2026-10-23T00:00:00+02:00"}`.
+
+### POST /api/shop/boosters/daily
+
+Ouvre gratuitement le booster du jour : cartes tirées côté serveur, ajoutées à la collection, rien n'est débité
+(`price` = 0, pas de ligne `wallet_entries`). Un seul par jour et par joueur : une fois ouvert, l'appel renvoie la
+même ouverture (pas besoin d'`Idempotency-Key`). Réponse 201 au format de `POST /boosters/{slug}/open`.
+
+## Machine à sous de shop-service
+
+Le joueur choisit n'importe quelle carte du catalogue (1 797, même en rupture de stock), mise des PokéDollars et
+gagne la carte ou rien. Mise et chance dépendent de la rareté de la carte. Déroulé :
+`processus-boosters-et-pokedollars.md`.
+
+### GET /api/shop/slots
+
+Public. `[{"rarity": "COMMON", "stake": 20, "chance": 0.5}, …]` :
+
+| Rareté | Mise (PokéDollars) | Chance de gagner | Coût moyen d'une carte |
+|--------|--------------------|------------------|------------------------|
+| `COMMON` | 20 | 50 % | 40 |
+| `UNCOMMON` | 40 | 30 % | 133 |
+| `RARE` | 100 | 15 % | 667 |
+| `HOLO` | 200 | 10 % | 2 000 |
+| `ULTRA` | 400 | 7 % | 5 714 |
+| `SECRET` | 750 | 4 % | 18 750 |
+
+Valeurs dans `slot_service.RULES` (`services/shop-service/app/slot_service.py`) : les modifier ne demande qu'un
+redémarrage de `shop-service`.
+
+### POST /api/shop/slots/spin
+
+Corps `{"card_id": "base1-4"}`, en-tête facultatif `Idempotency-Key: <UUID>` (une requête rejouée renvoie la
+même partie sans redébiter). Une seule transaction : débit de la mise (`wallet_entries`, `reason = SLOT`), tirage
+côté serveur, ajout de la carte à la collection en cas de gain, historique dans `slot_spins`.
+
+Réponse 201 : `{"id", "card": carte, "stake", "chance", "won": true, "is_new": true, "balance", "spun_at"}`.
+
+- 404 : `Carte introuvable` ;
+- 409 : `Solde insuffisant : il vous manque N PokéDollars`, ou `Clé d'idempotence déjà utilisée pour une autre
+  carte` ;
+- 422 : `card_id` absent ou de plus de 30 caractères, `Idempotency-Key` qui n'est pas un UUID.
+
 ## Panier de shop-service
 
 Le prix, le stock et les totaux sont toujours recalculés par `shop-service` à partir de la base, jamais
@@ -255,14 +309,16 @@ plateforme injoignable, la commande reste payée. Déroulé : `processus-annulat
 `{"balance": 1200, "entries": [{"amount": -400, "balance_after": 800, "reason": "BOOSTER",
 "reference": "<uuid de l'ouverture>", "label": "Ouverture : Booster 151", "created_at": …}, …]}` : solde et
 30 derniers mouvements. `reason` : `PURCHASE` (achat, référence = numéro de commande), `BOOSTER`, `REFUND`
-(annulation). Un utilisateur qui n'a jamais rien acheté a un solde de 0.
+(annulation), `SLOT` (mise à la machine à sous, référence = identifiant de la partie). Un utilisateur qui n'a
+jamais rien acheté a un solde de 0.
 
 ### GET /api/shop/collection
 
 `distinct` (cartes différentes), `copies` (exemplaires), `total` (1 797), `value` (valeur au prix de la
 boutique), `sets` (`id`, `name`, `logo_url`, `owned`, `total` par set), `boosters` (boosters ouverts, du plus
 acheté au moins acheté : `slug`, `name`, `card_count`, `sets`, `cover`, `colors`, `opened`, `spent` en
-PokéDollars, `last_opened_at`), `items` (`card`, `quantity`, `first_obtained_at`).
+PokéDollars, `last_opened_at` ; les boosters du jour comptent dans `opened`, pour 0 dans `spent`), `items`
+(`card`, `quantity`, `first_obtained_at`).
 
 ## Système et documentation de shop-service
 

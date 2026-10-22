@@ -26,7 +26,7 @@ _rng = secrets.SystemRandom()
 MAX_BATCH = 5  # boosters ouverts d'un coup, au plus
 
 
-def _pools(db: Session, set_ids: list[str]) -> dict[Rarity, list[str]]:
+def card_pools(db: Session, set_ids: list[str]) -> dict[Rarity, list[str]]:
     pools: dict[Rarity, list[str]] = {}
     for card_id, rarity in db.execute(select(Card.id, Card.rarity).where(Card.set_id.in_(set_ids)).order_by(Card.id)):
         pools.setdefault(rarity, []).append(card_id)
@@ -69,7 +69,7 @@ def describe(db: Session, boosters: list[Booster]) -> list[dict]:
                 "sets": [sets[s] for s in booster.set_ids],
                 "cover": booster.cover_card,
                 "colors": booster.colors,
-                "odds": odds(booster, _pools(db, booster.set_ids)),
+                "odds": odds(booster, card_pools(db, booster.set_ids)),
             }
         )
     return out
@@ -142,7 +142,7 @@ def open_boosters(db: Session, user_id: uuid.UUID, slug: str, request_id: uuid.U
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f"Solde insuffisant : il vous manque {missing}")
 
-    pools = _pools(db, booster.set_ids)
+    pools = card_pools(db, booster.set_ids)
     draws = [draw(booster.slots, pools) for _ in range(count)]
     owned = collection_service.owned_ids(db, user_id, [c for card_ids in draws for c in card_ids])
     openings = []

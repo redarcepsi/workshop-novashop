@@ -14,7 +14,7 @@ function StockStatus({ stock }) {
   if (stock === 0) {
     return (
       <p className="flex items-center gap-2 text-sm font-medium text-red-300">
-        <span className="h-2 w-2 rounded-full bg-red-400" /> Rupture : tentez votre chance dans un booster !
+        <span className="h-2 w-2 rounded-full bg-red-400" /> Rupture : tentez votre chance en booster ou à la machine à sous !
       </p>
     )
   }
@@ -191,6 +191,16 @@ export default function CardDetail() {
                 <Icon name="arrowRight" className="h-4 w-4 text-night-400" />
               </Link>
             )}
+            <Link
+              to={`/slots?card=${encodeURIComponent(product.slug)}`}
+              className={`${booster ? 'mt-3' : 'mt-5'} flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3 text-sm text-night-200 ring-1 ring-white/10 transition hover:bg-white/10`}
+            >
+              <Icon name="sparkles" className="h-5 w-5 shrink-0 text-gold-300" />
+              <span className="flex-1">
+                Ou visez-la directement à la <strong className="text-white">machine à sous</strong>, en PokéDollars.
+              </span>
+              <Icon name="arrowRight" className="h-4 w-4 text-night-400" />
+            </Link>
           </div>
 
           <dl className="mt-8 divide-y divide-white/10 border-y border-white/10">

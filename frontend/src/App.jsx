@@ -14,6 +14,7 @@ import OrderDetail from './pages/OrderDetail.jsx'
 import Orders from './pages/Orders.jsx'
 import PokeDollars from './pages/PokeDollars.jsx'
 import Register from './pages/Register.jsx'
+import Slots from './pages/Slots.jsx'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="cards" element={<Cards />} />
           <Route path="cards/:slug" element={<CardDetail />} />
           <Route path="boosters" element={<Boosters />} />
+          <Route path="slots" element={<Slots />} />
           <Route path="pokedollars" element={<PokeDollars />} />
           <Route path="collection" element={protect(<Collection />)} />
           <Route path="cart" element={<Cart />} />

@@ -46,6 +46,7 @@ const FIELD_LABELS = {
   cvc: 'CVC',
   quantity: 'Quantité',
   product_id: 'Produit',
+  card_id: 'Carte',
   items: 'Panier',
 }
 
@@ -166,6 +167,14 @@ export const shopApi = {
       method: 'POST',
       headers: { 'Idempotency-Key': requestId },
     }),
+  // Booster du jour : offert, un par jour (pas de clé d'idempotence : le serveur renvoie l'ouverture du jour)
+  dailyBooster: () => request('/shop/boosters/daily'),
+  openDailyBooster: () => request('/shop/boosters/daily', { method: 'POST' }),
+
+  // Machine à sous : règles publiques, partie connectée (même clé d'idempotence que les boosters)
+  slotRules: () => request('/shop/slots', { auth: false }),
+  spin: (cardId, requestId) =>
+    request('/shop/slots/spin', { method: 'POST', body: { card_id: cardId }, headers: { 'Idempotency-Key': requestId } }),
 
   // Panier
   quote: (items) => request('/shop/cart/quote', { method: 'POST', body: { items }, auth: false }),

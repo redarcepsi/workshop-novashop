@@ -41,7 +41,8 @@ Ces liens ne sont garantis par aucune contrainte : leur cohérence se vérifie p
 ## Base shop_db (shop-service)
 
 Boutique PokéBling : cartes Pokémon numériques (données de référence issues de TCGdex), produits vendus en
-euros, panier, commandes, porte-monnaie de PokéDollars, boosters et collection.
+euros, panier, commandes, porte-monnaie de PokéDollars, boosters (dont le booster du jour), machine à sous et
+collection.
 
 ```mermaid
 erDiagram
@@ -53,6 +54,8 @@ erDiagram
     cards ||--o{ collection_items : "possédée"
     cards ||--o{ boosters : "illustre"
     boosters ||--o{ booster_openings : "ouvert"
+    booster_openings ||--o| daily_boosters : "offert"
+    cards ||--o{ slot_spins : "visée"
 ```
 
 ### Tables card_sets et cards (données de référence)
@@ -128,9 +131,13 @@ produit est supprimé. Un changement de prix au catalogue ne modifie donc pas le
 (`SELECT … FOR UPDATE`) à chaque crédit ou débit.
 
 `wallet_entries` : journal des mouvements, en ajout seul : `id`, `user_id` (indexé), `amount` (positif = crédit,
-négatif = débit), `balance_after`, `reason` (enum `wallet_reason` : `PURCHASE`, `BOOSTER`, `REFUND`),
-`reference` (numéro de commande ou identifiant d'ouverture), `label`, `created_at`. Le solde se justifie ligne
-à ligne : `balance` = somme des `amount` de l'utilisateur.
+négatif = débit), `balance_after`, `reason` (enum `wallet_reason` : `PURCHASE`, `BOOSTER`, `REFUND`, `SLOT`),
+`reference` (numéro de commande, identifiant d'ouverture ou de partie), `label`, `created_at`. Le solde se
+justifie ligne à ligne : `balance` = somme des `amount` de l'utilisateur.
+
+Pas de migrations : `create_all` crée les tables et types manquants mais ne modifie pas un type enum existant.
+Au démarrage, `shop-service` ajoute donc les valeurs apparues depuis (`ALTER TYPE … ADD VALUE IF NOT EXISTS`,
+ex. `SLOT`) ; sans effet si elles y sont déjà.
 
 ### Tables boosters et booster_openings
 
@@ -140,13 +147,27 @@ négatif = débit), `balance_after`, `reason` (enum `wallet_reason` : `PURCHASE`
 
 `booster_openings` : historique des ouvertures : `id` (UUID), `user_id` (indexé), `booster_id`, `price` (payé),
 `request_id` (clé d'idempotence envoyée par le navigateur ; contrainte unique `uq_opening_user_request` sur
-`(user_id, request_id)`), `card_ids` (JSONB, ordre de révélation), `new_card_ids`, `opened_at`.
+`(user_id, request_id)`), `card_ids` (JSONB, ordre de révélation), `new_card_ids`, `opened_at`. Un booster du
+jour y a sa ligne, avec `price = 0`.
+
+### Table daily_boosters
+
+Boosters du jour ouverts : clé primaire `(user_id, day)` (un seul par jour et par joueur ; `day` à l'heure de
+Paris), `booster_id`, `opening_id` (clé étrangère unique vers `booster_openings`), `claimed_at`.
+
+### Table slot_spins
+
+Parties de machine à sous : `id` (UUID), `user_id` (indexé), `card_id` (clé étrangère vers `cards`), `stake`
+(mise en PokéDollars, contrainte `ck_slot_spin_stake_positive` : > 0), `chance` (probabilité appliquée à cette
+partie), `won`, `is_new` (carte gagnée absente de la collection jusque-là), `request_id` (clé d'idempotence ;
+contrainte unique `uq_slot_spin_user_request` sur `(user_id, request_id)`), `spun_at` (indexé).
 
 ### Table collection_items
 
 Les cartes possédées : clé primaire `(user_id, card_id)`, `card_id` (clé étrangère vers `cards`), `quantity`
 (contrainte `ck_collection_quantity_positive` : > 0), `first_obtained_at`, `last_obtained_at`. Alimentée par les
-commandes (cartes à l'unité) et les boosters, en `INSERT … ON CONFLICT DO UPDATE` (quantité ajoutée). Une
+commandes (cartes à l'unité), les boosters et la machine à sous, en `INSERT … ON CONFLICT DO UPDATE` (quantité
+ajoutée). Une
 annulation de commande retire les exemplaires achetés (la ligne est supprimée à 0).
 
 ## Base payment_db (payment-service)

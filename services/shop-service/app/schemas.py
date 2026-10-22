@@ -267,6 +267,38 @@ class BoosterBatchOut(BaseModel):
     openings: list[BoosterOpeningOut] = Field(description="Une ouverture par booster, dans l'ordre")
 
 
+class DailyBoosterOut(BaseModel):
+    day: date = Field(description="Journée en cours, à l'heure de Paris")
+    booster: BoosterOut = Field(description="Le booster offert aujourd'hui (celui déjà ouvert, le cas échéant)")
+    claimed: bool = Field(description="Vrai si le booster du jour a déjà été ouvert")
+    claimed_at: datetime | None
+    next_at: datetime = Field(description="Minuit, heure de Paris : prochain booster offert")
+
+
+# ---------------------------------------------------------------- machine à sous
+
+
+class SlotRuleOut(BaseModel):
+    rarity: Rarity
+    stake: int = Field(description="Mise d'une partie, en PokéDollars")
+    chance: float = Field(description="Probabilité de gagner la carte à chaque partie")
+
+
+class SlotSpinIn(BaseModel):
+    card_id: str = Field(max_length=30, examples=["base1-4"], description="Identifiant TCGdex de la carte visée")
+
+
+class SlotSpinOut(BaseModel):
+    id: uuid.UUID
+    card: CardOut
+    stake: int = Field(description="Mise débitée, en PokéDollars")
+    chance: float
+    won: bool = Field(description="Vrai si la carte a été gagnée (et ajoutée à la collection)")
+    is_new: bool = Field(description="Carte gagnée absente de la collection jusque-là")
+    balance: int = Field(description="Solde de PokéDollars après la partie")
+    spun_at: datetime
+
+
 # ---------------------------------------------------------------- collection
 
 

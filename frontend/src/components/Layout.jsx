@@ -12,6 +12,7 @@ import { PD } from './ui.jsx'
 const NAV = [
   { to: '/cards', label: 'Cartes', icon: 'cards' },
   { to: '/boosters', label: 'Boosters', icon: 'gift' },
+  { to: '/slots', label: 'Machine à sous', icon: 'sparkles' },
   { to: '/pokedollars', label: 'PokéDollars', icon: 'wallet' },
   { to: '/collection', label: 'Ma collection', icon: 'grid' },
 ]
@@ -70,7 +71,7 @@ function AccountMenu() {
       <Link
         to="/login"
         state={{ from: { pathname } }}
-        className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-night-100 transition hover:bg-white/10"
+        className="flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium text-night-100 transition hover:bg-white/10"
       >
         <Icon name="user" />
         <span className="hidden sm:inline">Se connecter</span>
@@ -134,7 +135,7 @@ function WalletChip() {
 function Header() {
   const { cart } = useCart()
   const navClass = ({ isActive }) =>
-    `flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium transition ${
+    `flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition xl:px-3.5 ${
       isActive ? 'bg-white/10 text-white' : 'text-night-300 hover:bg-white/5 hover:text-white'
     }`
 
@@ -153,9 +154,10 @@ function Header() {
           ))}
         </nav>
 
-        <SearchForm className="ml-auto hidden w-full max-w-[16rem] md:block xl:max-w-xs" />
+        {/* Entre lg et xl, la navigation prend la place : la recherche reste sur la page des cartes */}
+        <SearchForm className="ml-auto hidden w-full max-w-[16rem] md:block lg:hidden xl:block xl:max-w-xs" />
 
-        <div className="ml-auto flex items-center gap-1.5 md:ml-0">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 md:ml-0 lg:ml-auto xl:ml-0">
           <WalletChip />
           <AccountMenu />
           <Link
@@ -250,6 +252,7 @@ function Footer() {
             <li><Link to="/cards?featured=true" className={link}>Cartes d’exception</Link></li>
             <li><Link to="/cards?on_sale=true" className={link}>Promotions</Link></li>
             <li><Link to="/boosters" className={link}>Boosters</Link></li>
+            <li><Link to="/slots" className={link}>Machine à sous</Link></li>
             <li><Link to="/pokedollars" className={link}>PokéDollars</Link></li>
           </ul>
         </div>

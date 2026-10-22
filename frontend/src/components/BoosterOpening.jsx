@@ -24,7 +24,7 @@ const glowOf = (card) => RARITIES[card.rarity].glow
 const PARTICLES = Array.from({ length: 18 }, (_, i) => ({ a: i * 20 + ((i * 7) % 9), d: 110 + ((i * 37) % 90), delay: (i % 3) * 60 }))
 const jitter = (i) => (((i * 47) % 9) - 4) * 0.7
 
-function Burst({ color }) {
+export function Burst({ color }) {
   return (
     <div className="burst" style={{ '--glow': color }} aria-hidden="true">
       <div className="burst-rays" />
@@ -123,8 +123,10 @@ function Pack({ booster, phase, onOpen, behind = 0 }) {
  *
  * `count` > 1 : ouverture groupée. Tous les boosters sont payés et tirés en une requête ; le client les déchire
  * ensuite l'un après l'autre, puis un récapitulatif rassemble toutes les cartes.
+ *
+ * `daily` : le booster du jour, offert (POST /boosters/daily) ; un seul, et pas de « rouvrir » à la fin.
  */
-export default function BoosterOpening({ booster, count = 1, onClose }) {
+export default function BoosterOpening({ booster, count = 1, daily = false, onClose }) {
   const { balance, setBalance } = useWallet()
   const [phase, setPhase] = useState('ready') // ready → opening → tearing → reveal → (ready…) → summary (ou error)
   // Une clé par ouverture : rejouée telle quelle après une erreur réseau, le serveur ne débite qu'une fois
@@ -156,10 +158,12 @@ export default function BoosterOpening({ booster, count = 1, onClose }) {
     setError('')
     setPhase('opening')
     try {
-      const request =
-        count > 1
+      const single = (o) => ({ openings: [o], balance: o.balance })
+      const request = daily
+        ? shopApi.openDailyBooster().then(single)
+        : count > 1
           ? shopApi.openBoosters(booster.slug, count, requestId)
-          : shopApi.openBooster(booster.slug, requestId).then((o) => ({ openings: [o], balance: o.balance }))
+          : shopApi.openBooster(booster.slug, requestId).then(single)
       const [res] = await Promise.all([request, wait(reducedMotion() ? 0 : CHARGE_MS)])
       setBatch(res)
       setCurrent(0)
@@ -257,6 +261,11 @@ export default function BoosterOpening({ booster, count = 1, onClose }) {
       <div className="container-page relative flex items-center justify-between py-5">
         <p className="font-display text-lg font-semibold text-white">
           {booster.name}
+          {daily && (
+            <span className="ml-2 rounded-full bg-gold-400 px-2.5 py-0.5 align-middle text-xs font-bold uppercase tracking-wide text-night-950">
+              Offert
+            </span>
+          )}
           {count > 1 && (
             <span className="ml-2 rounded-full bg-white/10 px-2.5 py-0.5 align-middle text-sm font-medium text-night-200">
               {phase === 'summary' ? `× ${count}` : `${current + 1} / ${count}`}
@@ -289,6 +298,8 @@ export default function BoosterOpening({ booster, count = 1, onClose }) {
                 <p className="mt-1.5 text-sm text-night-300">
                   {batch ? (
                     `ou touchez-le simplement · booster ${current + 1} sur ${count}`
+                  ) : daily ? (
+                    'ou touchez-le simplement · votre booster du jour est offert'
                   ) : (
                     <>
                       ou touchez-le simplement
@@ -464,8 +475,9 @@ export default function BoosterOpening({ booster, count = 1, onClose }) {
               })}
             </div>
 
-            <div className="mt-10 flex flex-wrap justify-center gap-3">
-              {canAffordAgain ? (
+            {daily && <p className="mt-10 text-center text-sm text-night-300">Revenez demain : un nouveau booster vous attend dès minuit.</p>}
+            <div className={`flex flex-wrap justify-center gap-3 ${daily ? 'mt-4' : 'mt-10'}`}>
+              {daily ? null : canAffordAgain ? (
                 <Button onClick={again}>
                   {count > 1 ? `Rouvrir ${count} boosters` : 'Ouvrir un autre booster'} · <PD amount={booster.price * count} />
                 </Button>

@@ -9,7 +9,8 @@ réelles de bout en bout. **Aucun paiement réel, aucune donnée bancaire réell
   C'est lui qui est attaqué, surveillé et rétabli. La preuve de reprise est une nouvelle transaction acceptée.
 - **PokéBling** est un marchand partenaire : boutique de **cartes Pokémon numériques**. On y achète, par carte
   bancaire, des cartes à l'unité (cher) ou des **PokéDollars** (monnaie virtuelle) ; les PokéDollars servent à
-  ouvrir des **boosters**, tirés au sort par le serveur ; chaque client a sa **collection**.
+  ouvrir des **boosters**, tirés au sort par le serveur (dont un **booster du jour** offert), et à jouer à la
+  **machine à sous** pour tenter de gagner une carte choisie ; chaque client a sa **collection**.
 
 Les noms et caractéristiques des 1 797 cartes (16 sets : Set de Base, Jungle, Fossile ; toute la série Noir &
 Blanc, de Noir & Blanc à Explosion Plasma ; 151, Évolutions Prismatiques) viennent de l'API publique [TCGdex](https://tcgdex.dev), en français. Ils sont enregistrés dans
@@ -127,7 +128,9 @@ Conséquences, vérifiées sur la stack (sous Docker Desktop, avant le passage s
 - **PokéDollars et boosters** : porte-monnaie verrouillé à chaque mouvement, solde ≥ 0 imposé par la base,
   journal des mouvements en ajout seul. Les cartes d'un booster sont **tirées par le serveur**
   (`secrets.SystemRandom`), selon des probabilités publiées par `GET /api/shop/boosters`. Ouverture idempotente
-  (`Idempotency-Key`) : un double clic ne débite qu'une fois. Une commande dont les PokéDollars ont été dépensés
+  (`Idempotency-Key`) : un double clic ne débite qu'une fois. Même règle pour la machine à sous (résultat tiré
+  par le serveur, mise et chance selon la rareté) ; le booster du jour est limité à un par joueur et par jour par
+  la base (clé primaire). Une commande dont les PokéDollars ont été dépensés
   ne peut plus être annulée (pas de remboursement de monnaie déjà utilisée).
 - **Pas de survente** : au paiement, les produits sont verrouillés (`SELECT … FOR UPDATE`, triés par id
   pour éviter les interblocages). Deux clients ne peuvent pas acheter le dernier exemplaire en même temps.
@@ -215,7 +218,7 @@ docker compose down -v                 # arrêter ET supprimer les données (le 
 
 > Pas de migrations pour l'instant (`create_all`) : après une modification des modèles de shop-service,
 > réinitialisez ses tables (le catalogue est recréé au démarrage, les comptes ne sont pas touchés) :
-> `docker compose exec postgres psql -U postgres -d shop_db -c "DROP TABLE IF EXISTS booster_openings, boosters, collection_items, wallet_entries, wallets, order_items, orders, cart_items, products, cards, card_sets CASCADE; DROP TYPE IF EXISTS order_status, product_kind, card_rarity, wallet_reason;"`
+> `docker compose exec postgres psql -U postgres -d shop_db -c "DROP TABLE IF EXISTS slot_spins, daily_boosters, booster_openings, boosters, collection_items, wallet_entries, wallets, order_items, orders, cart_items, products, cards, card_sets CASCADE; DROP TYPE IF EXISTS order_status, product_kind, card_rarity, wallet_reason;"`
 > puis `docker compose restart shop-service`.
 >
 > **Passage de NovaShop à PokéBling** : rien à faire à la main. Au démarrage, shop-service reconnaît les tables
@@ -365,7 +368,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy Vite 
 | `/`              | Accueil : cartes d'exception, boosters, lots de PokéDollars, sets |
 | `/cards`         | Cartes à l'unité : recherche, set, rareté, type, catégorie, tri, pagination |
 | `/cards/:slug`   | Fiche d'une carte : carte holographique, rareté, stock, ajout au panier, booster du set |
-| `/boosters`      | Boosters : prix en PokéDollars, probabilités, ouverture animée : paquet à déchirer, cartes retournées une à une (connexion requise pour ouvrir) |
+| `/boosters`      | Boosters : prix en PokéDollars, probabilités, ouverture animée : paquet à déchirer, cartes retournées une à une (connexion requise pour ouvrir) ; booster du jour offert |
+| `/slots`         | Machine à sous : choix d'une carte parmi toutes, mise et chance selon la rareté, rouleaux animés (connexion requise pour jouer) |
 | `/pokedollars`   | Lots de PokéDollars, solde et historique des mouvements           |
 | `/collection`    | Collection : avancement global et par set, valeur, cartes du moins rare au plus rare, manquantes en grisé (connexion requise) |
 | `/cart`          | Panier : quantités, suppression, ce qui sera livré                |
@@ -399,6 +403,10 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 | GET     | `/boosters`                  | –    | Boosters, prix en PokéDollars, probabilités par rareté |
 | POST    | `/boosters/{slug}/open`      | JWT  | Payer en PokéDollars et ouvrir (409 solde insuffisant ; `Idempotency-Key` facultative) |
 | POST    | `/boosters/{slug}/open-batch` | JWT | Payer et ouvrir jusqu'à 5 boosters d'un coup (`count`, défaut 5 ; tout ou rien) |
+| GET     | `/boosters/daily`            | JWT  | Mon booster du jour : lequel, déjà ouvert ou non, prochain à minuit (heure de Paris) |
+| POST    | `/boosters/daily`            | JWT  | Ouvrir gratuitement le booster du jour (un par jour ; rejoué : même ouverture) |
+| GET     | `/slots`                     | –    | Machine à sous : mise et chance de gain par rareté     |
+| POST    | `/slots/spin`                | JWT  | Miser pour tenter de gagner une carte (`{"card_id"}` ; 409 solde insuffisant ; `Idempotency-Key` facultative) |
 | POST    | `/cart/quote`                | –    | Chiffrer un panier invité                              |
 | GET     | `/cart`                      | JWT  | Mon panier (totaux calculés)                           |
 | POST    | `/cart/items`                | JWT  | Ajouter un article (409 si stock insuffisant)          |
@@ -443,9 +451,11 @@ la relaie pas, seule `metrics-gateway` y accède (voir [Supervision](#supervisio
 │   │       ├── order_service.py        # paiement du panier, livraison, annulation (verrous, compensation)
 │   │       ├── wallet_service.py       # porte-monnaie de PokéDollars (verrou, journal)
 │   │       ├── booster_service.py      # probabilités, tirage côté serveur, ouverture idempotente
+│   │       ├── daily_service.py        # booster du jour offert (un par joueur et par jour)
+│   │       ├── slot_service.py         # machine à sous : mise et chance par rareté, tirage serveur
 │   │       ├── collection_service.py   # collection de chaque client
 │   │       ├── payment.py              # client de payment-service (clé API, idempotence, 503)
-│   │       └── routers/                # catalog.py, boosters.py, cart.py, orders.py, account.py
+│   │       └── routers/                # catalog.py, boosters.py, slots.py, cart.py, orders.py, account.py
 │   ├── payment-service/
 │   │   └── app/
 │   │       ├── models.py               # Merchant, Transaction (+ transitions), TransactionEvent

@@ -14,8 +14,17 @@ export const formatPD = (value) => `${integer.format(value ?? 0)} PokéDollars`
 /** Probabilité : « 33,3 % », « < 0,1 % », « 100 % ». */
 export const formatChance = (p) => (p >= 1 ? '100 %' : p > 0 && p < 0.001 ? '< 0,1 %' : percent.format(p))
 
-/** Probabilité en fréquence : « 1 booster sur 44 ». */
-export const formatOneIn = (p) => (p >= 0.5 ? null : `1 booster sur ${integer.format(Math.round(1 / p))}`)
+/** Probabilité en fréquence : « 1 booster sur 44 », « 1 partie sur 25 ». */
+export const formatOneIn = (p, unit = 'booster') => (p >= 0.5 ? null : `1 ${unit} sur ${integer.format(Math.round(1 / p))}`)
+
+/** Durée restante : « 5 h 12 min », « 8 min », « moins d’une minute ». */
+export const formatDuration = (ms) => {
+  const minutes = Math.ceil(ms / 60000)
+  if (minutes <= 1) return 'moins d’une minute'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h ? `${h} h${m ? ` ${String(m).padStart(2, '0')} min` : ''}` : `${m} min`
+}
 
 export const formatDate = (iso) => longDate.format(new Date(iso))
 

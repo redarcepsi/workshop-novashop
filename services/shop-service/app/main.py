@@ -7,7 +7,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from .config import API_PREFIX, settings
 from .database import init_db
-from .routers import account, boosters, cart, catalog, orders
+from .routers import account, boosters, cart, catalog, orders, slots
 from .schemas import HealthOut
 
 logging.basicConfig(level=logging.INFO)
@@ -24,12 +24,14 @@ app = FastAPI(
     version="2.0.0",
     description=(
         "API métier de la boutique fictive **PokéBling** : cartes Pokémon numériques à l'unité, lots de "
-        "PokéDollars (monnaie virtuelle), boosters à ouvrir avec ces PokéDollars, et collection de chaque joueur. "
+        "PokéDollars (monnaie virtuelle), boosters à ouvrir avec ces PokéDollars (dont un booster offert chaque jour), "
+        "machine à sous pour tenter de gagner une carte choisie, et collection de chaque joueur. "
         "Le paiement par carte (cartes à l'unité, PokéDollars) est confié à la plateforme de paiement "
-        "(`payment-service`), dont PokéBling est un marchand ; les boosters se paient en PokéDollars.\n\n"
+        "(`payment-service`), dont PokéBling est un marchand ; boosters et machine à sous se paient en PokéDollars.\n\n"
         "Noms et caractéristiques des cartes : [TCGdex](https://tcgdex.dev). Les images sont servies par TCGdex.\n\n"
-        "- **Catalogue** et **Boosters** (liste) : publics, sans authentification\n"
-        "- **Panier**, **Commandes**, **PokéDollars**, **Collection** et ouverture de boosters : exigent un **JWT** "
+        "- **Catalogue**, **Boosters** (liste) et règles de la **Machine à sous** : publics, sans authentification\n"
+        "- **Panier**, **Commandes**, **PokéDollars**, **Collection**, ouverture de boosters (booster du jour compris) "
+        "et parties de machine à sous : exigent un **JWT** "
         "délivré par `auth-service` (`POST /api/auth/login`). Cliquer sur **Authorize** et coller le `access_token`.\n\n"
         "⚠️ Boutique de démonstration : aucun paiement réel, aucune donnée bancaire conservée."
     ),
@@ -38,7 +40,11 @@ app = FastAPI(
     openapi_url=f"{API_PREFIX}/openapi.json",
     openapi_tags=[
         {"name": "Catalogue", "description": "Sets, cartes et produits (public)"},
-        {"name": "Boosters", "description": "Boosters payés en PokéDollars : liste publique, ouverture connectée"},
+        {
+            "name": "Boosters",
+            "description": "Boosters payés en PokéDollars et booster du jour offert : liste publique, ouverture connectée",
+        },
+        {"name": "Machine à sous", "description": "Miser des PokéDollars pour tenter de gagner une carte choisie"},
         {"name": "Panier", "description": "Panier de l'utilisateur connecté, et chiffrage d'un panier invité"},
         {"name": "Commandes", "description": "Paiement du panier par carte, historique et annulation"},
         {"name": "PokéDollars", "description": "Porte-monnaie de monnaie virtuelle"},
@@ -64,6 +70,7 @@ def health():
 
 app.include_router(catalog.router)
 app.include_router(boosters.router)
+app.include_router(slots.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
 app.include_router(account.router)

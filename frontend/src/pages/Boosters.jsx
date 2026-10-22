@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { shopApi } from '../api.js'
 import BoosterOpening from '../components/BoosterOpening.jsx'
@@ -8,7 +8,7 @@ import { Alert, Button, ButtonLink, PD, PageSpinner, RarityBadge } from '../comp
 import { useAuth } from '../context/AuthContext.jsx'
 import { useWallet } from '../context/WalletContext.jsx'
 import { boosterSerie, groupBySerie, serieInfo } from '../utils/cards.js'
-import { formatChance, formatOneIn, formatPD } from '../utils/format.js'
+import { formatChance, formatDuration, formatOneIn, formatPD } from '../utils/format.js'
 
 const BATCH = 5 // ouverture groupée (POST /boosters/{slug}/open-batch)
 
@@ -149,6 +149,85 @@ function BoosterTile({ booster, onOpen }) {
   )
 }
 
+/** Le booster offert chaque jour : à ouvrir, ou déjà ouvert avec le temps restant avant le suivant. */
+function DailyBooster({ daily, onOpen, onExpired }) {
+  const location = useLocation()
+  const [now, setNow] = useState(() => Date.now())
+
+  // Compte à rebours ; passé minuit, on redemande le booster du jour (au plus une fois par tic : une horloge en
+  // avance sur celle du serveur ne déclenche pas une rafale de requêtes)
+  useEffect(() => {
+    if (!daily?.claimed) return
+    setNow(Date.now())
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      if (Date.now() >= new Date(daily.next_at).getTime()) onExpired()
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [daily, onExpired])
+
+  const remaining = daily ? new Date(daily.next_at).getTime() - now : 0
+
+  if (daily === undefined) {
+    return (
+      <section className="panel mb-12 flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gold-400/15 text-gold-300 ring-1 ring-gold-400/30">
+          <Icon name="gift" className="h-6 w-6" />
+        </span>
+        <div className="flex-1">
+          <p className="font-semibold text-white">Un booster offert chaque jour</p>
+          <p className="text-sm text-night-300">Connectez-vous pour ouvrir gratuitement votre booster du jour.</p>
+        </div>
+        <ButtonLink to="/login" state={{ from: location }} variant="secondary">
+          Se connecter
+        </ButtonLink>
+      </section>
+    )
+  }
+  if (!daily) return null
+
+  const { booster, claimed } = daily
+  return (
+    <section className="panel relative mb-12 overflow-hidden" aria-label="Booster du jour">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-30"
+        style={{ background: `radial-gradient(36rem 18rem at 12% 50%, ${booster.colors[0]}, transparent 70%)` }}
+      />
+      <div className="relative flex flex-col items-center gap-6 p-6 text-center sm:flex-row sm:p-8 sm:text-left">
+        <button
+          type="button"
+          onClick={onOpen}
+          disabled={claimed}
+          aria-label={`Ouvrir le booster du jour : ${booster.name}`}
+          className="w-28 shrink-0 transition duration-300 enabled:hover:-translate-y-1 enabled:hover:rotate-2 sm:w-32"
+        >
+          <BoosterPack booster={booster} className={claimed ? 'opacity-40 grayscale' : 'animate-float'} />
+        </button>
+        <div className="flex-1">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-gold-300">Cadeau du jour</p>
+          <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+            {claimed ? 'Booster du jour ouvert' : `Votre booster du jour : ${booster.name.replace(/^Booster /, '')}`}
+          </h2>
+          <p className="mt-2 max-w-xl text-sm text-night-300">
+            {claimed
+              ? `Prochain booster offert dans ${formatDuration(remaining)}, tiré au hasard parmi tous les boosters hors édition premium.`
+              : `Chaque jour, un booster offert, tiré au hasard parmi tous les boosters hors édition premium. ${booster.card_count} cartes, rien à payer : il change à minuit.`}
+          </p>
+        </div>
+        {claimed ? (
+          <ButtonLink to="/collection" variant="secondary" className="shrink-0">
+            <Icon name="grid" className="h-4 w-4" /> Voir ma collection
+          </ButtonLink>
+        ) : (
+          <Button onClick={onOpen} className="h-12 shrink-0 px-6">
+            <Icon name="gift" className="h-5 w-5" /> Ouvrir gratuitement
+          </Button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export default function Boosters() {
   const { user } = useAuth()
   const { balance } = useWallet()
@@ -157,6 +236,8 @@ export default function Boosters() {
   const [boosters, setBoosters] = useState(null)
   const [error, setError] = useState('')
   const [opening, setOpening] = useState(null)
+  // Booster du jour : undefined pour un visiteur, null pendant le chargement (ou service indisponible)
+  const [daily, setDaily] = useState(null)
 
   useEffect(() => {
     shopApi
@@ -165,11 +246,28 @@ export default function Boosters() {
       .catch((e) => setError(e.message))
   }, [])
 
+  const loadDaily = useCallback(() => {
+    if (!user) return setDaily(undefined)
+    shopApi
+      .dailyBooster()
+      .then(setDaily)
+      .catch(() => setDaily(null))
+  }, [user])
+
+  useEffect(() => {
+    loadDaily()
+  }, [loadDaily])
+
   const groups = boosters ? groupBySerie(boosters, boosterSerie) : []
 
   const onOpen = (booster, count = 1) => {
     if (!user) return navigate('/login', { state: { from: location } })
     setOpening({ booster, count })
+  }
+
+  const onClose = () => {
+    if (opening.daily) loadDaily()
+    setOpening(null)
   }
 
   return (
@@ -202,6 +300,12 @@ export default function Boosters() {
           </p>
         )}
       </div>
+
+      <DailyBooster
+        daily={daily}
+        onOpen={() => setOpening({ booster: daily.booster, count: 1, daily: true })}
+        onExpired={loadDaily}
+      />
 
       {error && <Alert>{error}</Alert>}
       {!boosters && !error && <PageSpinner />}
@@ -237,7 +341,7 @@ export default function Boosters() {
         ))}
       </div>
 
-      {opening && <BoosterOpening booster={opening.booster} count={opening.count} onClose={() => setOpening(null)} />}
+      {opening && <BoosterOpening booster={opening.booster} count={opening.count} daily={opening.daily} onClose={onClose} />}
     </div>
   )
 }

@@ -95,8 +95,10 @@ Chaque API expose `/metrics` hors de son préfixe `/api/<service>` : la passerel
 | `payment_amount_total` | `payment-service` | `merchant`, `status`, `currency` | Montant cumulé par statut, en euros |
 | `shop_payment_service_errors_total` | `shop-service` | `reason` | Appels à `payment-service` en échec, nouvelles tentatives comprises : `timeout` (trop lent), `unreachable` (arrêté, injoignable), `server_error` (réponse 5xx) |
 | `shop_order_compensations_total` | `shop-service` | `outcome` | Commandes non enregistrées après un paiement accepté : `refunded` (client remboursé) ou `failed` (débit à régulariser) |
-| `shop_pokedollars_total` | `shop-service` | `movement` | PokéDollars `credited` (achetés), `spent` (boosters) ou `revoked` (repris à l'annulation d'une commande) |
-| `shop_boosters_opened_total` | `shop-service` | `booster` | Boosters ouverts, par slug (`set-de-base`, `151`, `legendaire`…) |
+| `shop_pokedollars_total` | `shop-service` | `movement` | PokéDollars `credited` (achetés), `spent` (boosters et mises à la machine à sous) ou `revoked` (repris à l'annulation d'une commande) |
+| `shop_boosters_opened_total` | `shop-service` | `booster` | Boosters ouverts, par slug (`set-de-base`, `151`, `legendaire`…), boosters du jour compris |
+| `shop_daily_boosters_total` | `shop-service` | – | Boosters du jour ouverts (offerts, un par joueur et par jour) |
+| `shop_slot_spins_total` | `shop-service` | `rarity`, `outcome` | Parties de machine à sous, par rareté de la carte visée (`COMMON` … `SECRET`) et résultat (`won`, `lost`) |
 | `rag_answer_duration_seconds` | `rag-service` | – | Durée de génération des réponses de l'assistant, réflexion comprise |
 | `rag_failures_total` | `rag-service` | `stage` | Questions sans réponse complète : `search` (recherche documentaire) ou `generation` (modèle local) |
 | `nginx_connections_active`, `nginx_http_requests_total` | `frontend` | – | Connexions ouvertes et requêtes traitées par nginx |
@@ -258,7 +260,8 @@ Autres messages : `Marchand de démo novashop : créé` / `clé API renouvelée`
 | ERROR | `Commande CMD-… non enregistrée après le paiement PAY_… : remboursement` | Compensation lancée |
 | ERROR | `Remboursement de compensation impossible pour PAY_… : à régulariser` | Débit sans commande |
 
-Au démarrage : `Catalogue PokéBling inséré : 1797 cartes, 4 lots de PokéDollars, 17 boosters` (base vide) ou `Catalogue PokéBling mis à jour : N cartes ajoutées (N sets), …, N boosters modifiés` (sets ou boosters ajoutés ou changés depuis), `Tables de l'ancienne boutique NovaShop détectées : …` (une fois, au passage à PokéBling), `Booster ouvert : user=… booster=… cartes=…`, `Base indisponible (tentative N/15)…`.
+Au démarrage : `Catalogue PokéBling inséré : 1797 cartes, 4 lots de PokéDollars, 17 boosters` (base vide) ou `Catalogue PokéBling mis à jour : N cartes ajoutées (N sets), …, N boosters modifiés` (sets ou boosters ajoutés ou changés depuis), `Tables de l'ancienne boutique NovaShop détectées : …` (une fois, au passage à PokéBling), `Booster ouvert : user=… booster=… cartes=…`, `Booster du jour ouvert : user=… booster=… cartes=…`,
+`Machine à sous : user=… carte=… mise=… gagné=True|False`, `Base indisponible (tentative N/15)…`.
 
 ## Journaux d'auth-service
 

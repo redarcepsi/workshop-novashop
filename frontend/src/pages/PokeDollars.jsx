@@ -12,7 +12,9 @@ const REASONS = {
   PURCHASE: { icon: 'bag', label: 'Achat' },
   BOOSTER: { icon: 'gift', label: 'Booster' },
   REFUND: { icon: 'refresh', label: 'Annulation' },
+  SLOT: { icon: 'sparkles', label: 'Machine à sous' },
 }
+const OTHER_REASON = { icon: 'wallet', label: 'Mouvement' }
 
 function History() {
   const { entries, refresh } = useWallet()
@@ -27,7 +29,7 @@ function History() {
   return (
     <ul className="divide-y divide-white/10">
       {entries.map((e) => {
-        const reason = REASONS[e.reason]
+        const reason = REASONS[e.reason] ?? OTHER_REASON
         const isOrder = e.reference.startsWith('CMD-')
         return (
           <li key={`${e.created_at}-${e.reference}-${e.amount}`} className="flex items-center gap-4 py-3.5">
@@ -84,7 +86,8 @@ export default function PokeDollars() {
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-gold-300">La monnaie PokéBling</p>
             <h1 className="font-display text-5xl font-bold tracking-tight text-white">PokéDollars</h1>
             <p className="mt-3 max-w-xl text-night-300">
-              Achetés par carte bancaire, crédités dès le paiement, ils servent à ouvrir les boosters. Comptez environ
+              Achetés par carte bancaire, crédités dès le paiement, ils servent à ouvrir les boosters et à jouer à la
+              machine à sous. Comptez environ
               100 PokéDollars par euro, et jusqu’à 40 % offerts sur les gros lots.
             </p>
             {user ? (

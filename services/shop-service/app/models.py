@@ -9,6 +9,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -207,6 +208,7 @@ class WalletReason(str, enum.Enum):
     PURCHASE = "PURCHASE"  # achat de PokéDollars (commande payée)
     BOOSTER = "BOOSTER"    # ouverture d'un booster
     REFUND = "REFUND"      # annulation d'une commande : les PokéDollars achetés sont repris
+    SLOT = "SLOT"          # mise à la machine à sous
 
 
 class WalletEntry(Base):
@@ -274,5 +276,46 @@ class CollectionItem(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     first_obtained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_obtained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    card: Mapped[Card] = relationship(lazy="joined", innerjoin=True)
+
+
+class DailyBooster(Base):
+    """Booster du jour offert à un utilisateur : la clé primaire (utilisateur, jour) en interdit un second."""
+
+    __tablename__ = "daily_boosters"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)  # jour à l'heure de Paris
+    booster_id: Mapped[int] = mapped_column(ForeignKey("boosters.id"))
+    opening_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booster_openings.id"), unique=True)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    booster: Mapped[Booster] = relationship(lazy="joined", innerjoin=True)
+    opening: Mapped[BoosterOpening] = relationship(lazy="joined", innerjoin=True)
+
+
+# ---------------------------------------------------------------- machine à sous
+
+
+class SlotSpin(Base):
+    """Une partie de machine à sous : la carte visée, la mise et la chance du moment, et le résultat."""
+
+    __tablename__ = "slot_spins"
+    # Même règle que les boosters : un double clic ne joue (et ne débite) qu'une partie
+    __table_args__ = (
+        UniqueConstraint("user_id", "request_id", name="uq_slot_spin_user_request"),
+        CheckConstraint("stake > 0", name="ck_slot_spin_stake_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id"))
+    stake: Mapped[int] = mapped_column(Integer)  # en PokéDollars
+    chance: Mapped[float] = mapped_column(Float)  # probabilité de gain appliquée à cette partie
+    won: Mapped[bool] = mapped_column(Boolean)
+    is_new: Mapped[bool] = mapped_column(Boolean, default=False)  # carte gagnée absente de la collection jusque-là
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    spun_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
 
     card: Mapped[Card] = relationship(lazy="joined", innerjoin=True)
